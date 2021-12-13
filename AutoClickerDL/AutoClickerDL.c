@@ -1,0 +1,230 @@
+#pragma comment(linker,"\"/manifestdependency:type='win32' \
+name='Microsoft.Windows.Common-Controls' version='6.0.0.0' \
+processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
+
+#include <stdio.h>
+#include <Windows.h>
+#include <Commctrl.h>
+#include <Shlobj.h>
+
+#ifndef UNICODE
+#define UNICODE
+#endif
+
+#include "General.h"
+
+#define WIDTH 400
+#define HEIGHT 500
+
+HWND mainWindowHandle;
+
+HWND tabControl, generalDisplayArea, settingsDisplayArea, rememberClickDisplayArea;
+HWND startStopHotKey;
+HWND spinnerHWD;
+
+UINT_PTR autoClickerTimer = NULL;
+
+LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+LRESULT CALLBACK SettingsProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+
+int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine, int nCmdShow) {
+	// Class name of the window.
+	const wchar_t CLASS_NAME[] = L"AutoClickerDL Window Class";
+
+	WNDCLASS wc = { 0 };
+	wc.lpfnWndProc = WindowProc;
+	wc.hInstance = hInstance;
+	wc.hCursor = LoadCursor(hInstance, IDC_ARROW);
+	wc.lpszClassName = CLASS_NAME;
+
+	RegisterClass(&wc);
+
+	// Creation of the Window.
+	HWND windowHandle = CreateWindowEx(0, CLASS_NAME, L"AutoClickerDL",
+		(WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX), CW_USEDEFAULT, CW_USEDEFAULT, WIDTH, HEIGHT,
+		NULL, NULL, hInstance, NULL);
+
+	if (windowHandle == NULL) {
+		return 0;
+	}
+
+	mainWindowHandle = windowHandle;
+
+	// Define the tab control (handle in WIN32 terms)
+	tabControl = CreateWindow(WC_TABCONTROL, L"", WS_VISIBLE | WS_CHILD | TCS_FOCUSONBUTTONDOWN,
+		0, 0, WIDTH, HEIGHT, windowHandle, NULL, hInstance, NULL);
+
+	// Create the 3 tab sections: General, Settings, and Remember Click
+	TCITEM tabItem = { 0 };
+	tabItem.mask = TCIF_TEXT;
+	tabItem.iImage = -1;
+	tabItem.pszText = L"General";
+	TabCtrl_InsertItem(tabControl, 0, &tabItem);
+	tabItem.pszText = L"Settings";
+	TabCtrl_InsertItem(tabControl, 1, &tabItem);
+	tabItem.pszText = L"Remember Click";
+	TabCtrl_InsertItem(tabControl, 2, &tabItem);
+
+	generalDisplayArea = CreateWindow(WC_STATIC, L"", WS_CHILD | WS_VISIBLE | WS_BORDER,
+		0, 23, WIDTH, HEIGHT-23, tabControl, NULL, hInstance, NULL);
+	settingsDisplayArea = CreateTabDisplayArea(tabControl, hInstance, L"SettingsDisplayArea", 0, 23, WIDTH, HEIGHT - 23, SettingsProc);
+	rememberClickDisplayArea = CreateWindow(WC_STATIC, L"", WS_CHILD | WS_BORDER,
+		0, 23, WIDTH, HEIGHT - 23, tabControl, NULL, hInstance, NULL);
+
+
+	/*
+	===============
+	General Display Area
+	===============
+	*/
+
+	HWND infoLabel = CreateWindow(WC_STATIC, L"Welcome to AutoClickerDL! Head to the settings tab to \npick what button to enable the auto clicking!", WS_VISIBLE | WS_CHILD | SS_CENTER,
+		0, 23, WIDTH, 30, generalDisplayArea, NULL, hInstance, NULL);
+	
+	// Notify the user that they are not running the program as an administrator and that may limit some features.
+	if (!IsUserAnAdmin()) {
+		HWND notAdminLabel = CreateWindow(WC_STATIC, L"Note: Program is not being ran with admin perms! This\n may limit some features", WS_VISIBLE | WS_CHILD | SS_CENTER,
+			0, HEIGHT - 120, WIDTH, 30, generalDisplayArea, NULL, hInstance, NULL);
+	}
+
+	Spinner spinner = { 0 };
+	spinner.x = 100;
+	spinner.y = 123;
+	spinner.step = 1;
+	spinner.labelPtr = L"CPS";
+	spinner.labelSize = 0;
+	spinner.rangeMin = 1;
+	spinner.rangeMax = 80;
+	spinnerHWD = CreateSpinner(generalDisplayArea, hInstance, spinner);
+
+
+	/*
+	===============
+	Settings Display Area
+	===============
+	*/
+	HWND hotKeyLabel = CreateWindow(WC_STATIC, L"Start/Stop Auto Clicker:", WS_VISIBLE | WS_CHILD,
+		10, 23, 150, 20, settingsDisplayArea, NULL, hInstance, NULL);
+	startStopHotKey = CreateWindow(HOTKEY_CLASS, L"Start/Stop Auto Clicker", WS_VISIBLE | WS_CHILD,
+		10, 43, 150, 20, settingsDisplayArea, NULL, hInstance, NULL);
+	SendMessage(startStopHotKey, HKM_SETHOTKEY, MAKEWORD(VK_F1, 0), 0);
+	RegisterHotKey(windowHandle, 0, MOD_NOREPEAT, VK_F1);
+
+	ShowWindow(windowHandle, nCmdShow);
+
+	// Message Loop
+	MSG msg = { 0 };
+	while (GetMessage(&msg, NULL, 0, 0)) {
+		TranslateMessage(&msg);
+		DispatchMessage(&msg);
+	}
+
+	return 0;
+}
+
+LRESULT CALLBACK SettingsProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+	switch (uMsg) {
+	case WM_COMMAND:
+	{
+		int cmd = HIWORD(wParam);
+		if (cmd == EN_CHANGE) {
+			int loword = LOWORD(wParam);
+			if (loword == 0) {
+				UnregisterHotKey(mainWindowHandle, 0);
+				int result = SendMessage(startStopHotKey, HKM_GETHOTKEY, NULL, NULL);
+				RegisterHotKey(mainWindowHandle, 0, HIBYTE(result), LOBYTE(result));
+			}
+		}
+	}
+	break;
+	default:
+		break;
+	}
+	return DefWindowProc(hwnd, uMsg, wParam, lParam);
+}
+
+LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+	switch (uMsg) {
+	case WM_DESTROY:
+		PostQuitMessage(0);
+		return 0;
+	case WM_PAINT:
+	{
+		PAINTSTRUCT ps;
+		HDC hdc = BeginPaint(hwnd, &ps);
+		FillRect(hdc, &ps.rcPaint, (HBRUSH)(COLOR_WINDOW + 1));
+		EndPaint(hwnd, &ps);
+	}
+	return 0;
+	case WM_NOTIFY:
+	{
+		// If the notify event for the a tab change.
+		if (((LPNMHDR)lParam)->code == TCN_SELCHANGE) {
+			int tabID = TabCtrl_GetCurSel(tabControl);
+			switch (tabID) {
+			case 0:
+				ShowWindow(generalDisplayArea, TRUE);
+				ShowWindow(settingsDisplayArea, FALSE);
+				ShowWindow(rememberClickDisplayArea, FALSE);
+				break;
+			case 1: 
+				ShowWindow(generalDisplayArea, FALSE);
+				ShowWindow(settingsDisplayArea, TRUE);
+				ShowWindow(rememberClickDisplayArea, FALSE);
+				break;
+			case 2:
+				ShowWindow(generalDisplayArea, FALSE);
+				ShowWindow(settingsDisplayArea, FALSE);
+				ShowWindow(rememberClickDisplayArea, TRUE);
+				break;
+			default:
+				break;
+			}
+		}
+	}
+	break;
+	case WM_COMMAND:
+	{
+		int cmd = HIWORD(wParam);
+		if (cmd == EN_CHANGE) {
+			int loword = LOWORD(wParam);
+			if (loword == 0) {
+				UnregisterHotKey(hwnd, 0);
+				int result = SendMessage(startStopHotKey, HKM_GETHOTKEY, NULL, NULL);
+				RegisterHotKey(hwnd, 0, HIBYTE(result), LOBYTE(result));
+			}
+		}
+	}
+	break;
+	case WM_HOTKEY:
+	{
+		if (autoClickerTimer == NULL) {
+			int pos = SendMessage(spinnerHWD, UDM_GETPOS32, NULL, NULL);
+			autoClickerTimer = SetTimer(hwnd, 1001, (1000 / pos), (TIMERPROC)NULL);
+		}
+		else {
+			KillTimer(hwnd, autoClickerTimer);
+			autoClickerTimer = NULL;
+		}
+
+		
+	}
+	break;
+	case WM_KEYDOWN:
+	{
+	}
+	break;
+	case WM_TIMER:
+	{
+		INPUT inputs[2] = { 0 };
+
+		inputs[0].type = INPUT_MOUSE;
+		inputs[0].mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_LEFTDOWN;
+		inputs[1].type = INPUT_MOUSE;
+		inputs[1].mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_LEFTUP;
+		SendInput(2, &inputs, sizeof(INPUT));
+	}
+	break;
+	}
+	return DefWindowProc(hwnd, uMsg, wParam, lParam);
+}
