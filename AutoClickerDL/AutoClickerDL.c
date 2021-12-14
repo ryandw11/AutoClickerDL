@@ -3,6 +3,7 @@ name='Microsoft.Windows.Common-Controls' version='6.0.0.0' \
 processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 
 #include <stdio.h>
+#include <time.h>
 #include <Windows.h>
 #include <Commctrl.h>
 #include <Shlobj.h>
@@ -16,6 +17,8 @@ processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 #define WIDTH 400
 #define HEIGHT 500
 
+#define SETTINGS_TIMED_CHECK_BOX 1
+
 // The handle to the main window.
 HWND mainWindowHandle;
 
@@ -24,11 +27,12 @@ HWND tabControl, generalDisplayArea, settingsDisplayArea, rememberClickDisplayAr
 
 // The hotkey control for the start/stop of the Auto Clicker.
 HWND startStopHotKey;
-// The spinner for clicks per second.
-HWND spinnerHWD;
+// The spinners
+HWND cpsSpinnerHWD, timedAutoSpinnerHWD;
 
 // The timer used by the clicker. Not null when enabled, NULL when not enabled.
 UINT_PTR autoClickerTimer = NULL;
+time_t startClickerTime;
 
 // Process callbacks.
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
@@ -95,15 +99,16 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 			0, HEIGHT - 120, WIDTH, 30, generalDisplayArea, NULL, hInstance, NULL);
 	}
 
-	Spinner spinner = { 0 };
-	spinner.x = 100;
-	spinner.y = 123;
-	spinner.step = 1;
-	spinner.labelPtr = L"CPS";
-	spinner.labelSize = 0;
-	spinner.rangeMin = 1;
-	spinner.rangeMax = 80;
-	spinnerHWD = CreateSpinner(generalDisplayArea, hInstance, spinner);
+	Spinner cpsSpinner = { 0 };
+	cpsSpinner.x = 100;
+	cpsSpinner.y = 123;
+	cpsSpinner.step = 1;
+	cpsSpinner.labelPtr = L"CPS";
+	cpsSpinner.labelSize = 0;
+	cpsSpinner.rangeMin = 1;
+	cpsSpinner.rangeMax = 80;
+	cpsSpinner.defaultValue = L"2";
+	cpsSpinnerHWD = CreateSpinner(generalDisplayArea, hInstance, cpsSpinner);
 
 
 	/*
@@ -118,6 +123,20 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 	SendMessage(startStopHotKey, HKM_SETHOTKEY, MAKEWORD(VK_F1, 0), 0);
 	RegisterHotKey(windowHandle, 0, MOD_NOREPEAT, VK_F1);
 
+	HWND checkbox = CreateWindow(WC_BUTTON, L"Timed Auto Click", WS_VISIBLE | WS_CHILD | BS_CHECKBOX,
+		10, 70, 130, 20, settingsDisplayArea, SETTINGS_TIMED_CHECK_BOX, hInstance, NULL);
+	Spinner timedAutoClickSpinner = { 0 };
+	timedAutoClickSpinner.x = 10;
+	timedAutoClickSpinner.y = 100;
+	timedAutoClickSpinner.step = 1;
+	timedAutoClickSpinner.labelPtr = L"Seconds";
+	timedAutoClickSpinner.labelSize = 0;
+	timedAutoClickSpinner.rangeMin = 1;
+	timedAutoClickSpinner.rangeMax = 20;
+	timedAutoClickSpinner.defaultValue = L"5";
+	timedAutoSpinnerHWD = CreateSpinner(settingsDisplayArea, hInstance, timedAutoClickSpinner);
+	EnableWindow(timedAutoSpinnerHWD, FALSE);
+	EnableWindow((HWND)SendMessage(timedAutoSpinnerHWD, UDM_GETBUDDY, NULL, NULL), FALSE);
 
 	/*
 	===============
@@ -152,6 +171,22 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 				UnregisterHotKey(mainWindowHandle, 0);
 				int result = SendMessage(startStopHotKey, HKM_GETHOTKEY, NULL, NULL);
 				RegisterHotKey(mainWindowHandle, 0, HIBYTE(result), LOBYTE(result));
+			}
+		}
+		else if (cmd == BN_CLICKED) {
+			int id = LOWORD(wParam);
+			// Handle the check click for the timed checkbox.
+			if (id == SETTINGS_TIMED_CHECK_BOX) {
+				if (IsDlgButtonChecked(settingsDisplayArea, SETTINGS_TIMED_CHECK_BOX)) {
+					CheckDlgButton(settingsDisplayArea, SETTINGS_TIMED_CHECK_BOX, BST_UNCHECKED);
+					EnableWindow(timedAutoSpinnerHWD, FALSE);
+					EnableWindow((HWND)SendMessage(timedAutoSpinnerHWD, UDM_GETBUDDY, NULL, NULL), FALSE);
+				}
+				else {
+					CheckDlgButton(settingsDisplayArea, SETTINGS_TIMED_CHECK_BOX, BST_CHECKED);
+					EnableWindow(timedAutoSpinnerHWD, TRUE);
+					EnableWindow((HWND)SendMessage(timedAutoSpinnerHWD, UDM_GETBUDDY, NULL, NULL), TRUE);
+				}
 			}
 		}
 	}
@@ -210,7 +245,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 	{
 		// If the timmer is not running, trigger it.
 		if (autoClickerTimer == NULL) {
-			int pos = SendMessage(spinnerHWD, UDM_GETPOS32, NULL, NULL);
+			int pos = SendMessage(cpsSpinnerHWD, UDM_GETPOS32, NULL, NULL);
+			startClickerTime = time(NULL);
 			autoClickerTimer = SetTimer(hwnd, 1001, (1000 / pos), (TIMERPROC)NULL);
 		}
 		// Else, kill it.
@@ -232,6 +268,12 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 		inputs[1].type = INPUT_MOUSE;
 		inputs[1].mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_LEFTUP;
 		SendInput(2, &inputs, sizeof(INPUT));
+
+		// If timer mode is enabled, shut off the timer if over time.
+		if (IsDlgButtonChecked(settingsDisplayArea, SETTINGS_TIMED_CHECK_BOX) && time(NULL) - startClickerTime  >= SendMessage(timedAutoSpinnerHWD, UDM_GETPOS32, NULL, NULL)) {
+			KillTimer(hwnd, autoClickerTimer);
+			autoClickerTimer = NULL;
+		}
 	}
 	break;
 	}

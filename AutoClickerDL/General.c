@@ -42,10 +42,10 @@ HWND CreateTabDisplayArea(HWND parent, HINSTANCE hInstance, LPCWSTR className, i
 	@returns The handle to the UPDOWN control.
 */
 HWND CreateSpinner(HWND parent, HINSTANCE hInstance, Spinner spinner) {
-	HWND cpsLabel = CreateWindow(WC_STATIC, spinner.labelPtr, WS_VISIBLE | WS_CHILD | SS_LEFT, spinner.x + 64, spinner.y, 40, 20, parent, NULL, hInstance, NULL);
+	HWND cpsLabel = CreateWindow(WC_STATIC, spinner.labelPtr, WS_VISIBLE | WS_CHILD | SS_LEFT, spinner.x + 64, spinner.y, 60, 20, parent, NULL, hInstance, NULL);
 	HWND spinnerUpDown = CreateWindow(UPDOWN_CLASS, L"F", WS_VISIBLE | WS_CHILD | UDS_ARROWKEYS | UDS_SETBUDDYINT | UDS_ALIGNRIGHT,
 		0, 0, 0, 0, parent, NULL, hInstance, NULL);
-	HWND spinnerEdit = CreateWindow(WC_EDIT, L"2", WS_VISIBLE | WS_CHILD, spinner.x, spinner.y, 60, 20, parent, NULL, hInstance, NULL);
+	HWND spinnerEdit = CreateWindow(WC_EDIT, spinner.defaultValue, WS_VISIBLE | WS_CHILD, spinner.x, spinner.y, 60, 20, parent, NULL, hInstance, NULL);
 	// Set the buddy of the spinner.
 	SendMessage(spinnerUpDown, UDM_SETBUDDY, spinnerEdit, NULL);
 	UDACCEL spinnerValueChange = { 0 };
