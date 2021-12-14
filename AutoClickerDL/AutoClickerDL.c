@@ -16,17 +16,25 @@ processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 #define WIDTH 400
 #define HEIGHT 500
 
+// The handle to the main window.
 HWND mainWindowHandle;
 
+// The different tabs.
 HWND tabControl, generalDisplayArea, settingsDisplayArea, rememberClickDisplayArea;
+
+// The hotkey control for the start/stop of the Auto Clicker.
 HWND startStopHotKey;
+// The spinner for clicks per second.
 HWND spinnerHWD;
 
+// The timer used by the clicker. Not null when enabled, NULL when not enabled.
 UINT_PTR autoClickerTimer = NULL;
 
+// Process callbacks.
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 LRESULT CALLBACK SettingsProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
+// Main method.
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine, int nCmdShow) {
 	// Class name of the window.
 	const wchar_t CLASS_NAME[] = L"AutoClickerDL Window Class";
@@ -105,14 +113,19 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 	*/
 	HWND hotKeyLabel = CreateWindow(WC_STATIC, L"Start/Stop Auto Clicker:", WS_VISIBLE | WS_CHILD,
 		10, 23, 150, 20, settingsDisplayArea, NULL, hInstance, NULL);
-	startStopHotKey = CreateWindow(HOTKEY_CLASS, L"Start/Stop Auto Clicker", WS_VISIBLE | WS_CHILD,
+	startStopHotKey = CreateWindow(HOTKEY_CLASS, L"Start/StopHotKey", WS_VISIBLE | WS_CHILD,
 		10, 43, 150, 20, settingsDisplayArea, NULL, hInstance, NULL);
 	SendMessage(startStopHotKey, HKM_SETHOTKEY, MAKEWORD(VK_F1, 0), 0);
 	RegisterHotKey(windowHandle, 0, MOD_NOREPEAT, VK_F1);
 
+
+	/*
+	===============
+	Window Messages
+	===============
+	*/
 	ShowWindow(windowHandle, nCmdShow);
 
-	// Message Loop
 	MSG msg = { 0 };
 	while (GetMessage(&msg, NULL, 0, 0)) {
 		TranslateMessage(&msg);
@@ -122,14 +135,20 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 	return 0;
 }
 
+/*
+	This is the callback for the messages of the settings display background.
+*/
 LRESULT CALLBACK SettingsProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 	switch (uMsg) {
 	case WM_COMMAND:
 	{
 		int cmd = HIWORD(wParam);
+		// Triggered by the hotkey change.
 		if (cmd == EN_CHANGE) {
+			// Identification of the hotkey control.
 			int loword = LOWORD(wParam);
 			if (loword == 0) {
+				// Unregister and re-register global hot key with the change.
 				UnregisterHotKey(mainWindowHandle, 0);
 				int result = SendMessage(startStopHotKey, HKM_GETHOTKEY, NULL, NULL);
 				RegisterHotKey(mainWindowHandle, 0, HIBYTE(result), LOBYTE(result));
@@ -143,6 +162,9 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 	return DefWindowProc(hwnd, uMsg, wParam, lParam);
 }
 
+/*
+	Callback for the main window message process.
+*/
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 	switch (uMsg) {
 	case WM_DESTROY:
@@ -183,25 +205,15 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 		}
 	}
 	break;
-	case WM_COMMAND:
-	{
-		int cmd = HIWORD(wParam);
-		if (cmd == EN_CHANGE) {
-			int loword = LOWORD(wParam);
-			if (loword == 0) {
-				UnregisterHotKey(hwnd, 0);
-				int result = SendMessage(startStopHotKey, HKM_GETHOTKEY, NULL, NULL);
-				RegisterHotKey(hwnd, 0, HIBYTE(result), LOBYTE(result));
-			}
-		}
-	}
-	break;
+	// When a global hotkey for the program is triggered.
 	case WM_HOTKEY:
 	{
+		// If the timmer is not running, trigger it.
 		if (autoClickerTimer == NULL) {
 			int pos = SendMessage(spinnerHWD, UDM_GETPOS32, NULL, NULL);
 			autoClickerTimer = SetTimer(hwnd, 1001, (1000 / pos), (TIMERPROC)NULL);
 		}
+		// Else, kill it.
 		else {
 			KillTimer(hwnd, autoClickerTimer);
 			autoClickerTimer = NULL;
@@ -210,12 +222,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 		
 	}
 	break;
-	case WM_KEYDOWN:
-	{
-	}
-	break;
 	case WM_TIMER:
 	{
+		// When the timmer is triggered, send a click event.
 		INPUT inputs[2] = { 0 };
 
 		inputs[0].type = INPUT_MOUSE;
