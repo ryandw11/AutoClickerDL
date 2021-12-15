@@ -15,6 +15,7 @@ processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 
 #include "General.h"
 #include "IO.h"
+#include "resource.h"
 
 #define WIDTH 400
 #define HEIGHT 500
@@ -60,6 +61,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 	wc.hInstance = hInstance;
 	wc.hCursor = LoadCursor(hInstance, IDC_ARROW);
 	wc.lpszClassName = CLASS_NAME;
+	wc.hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_ICON1));
 
 	RegisterClass(&wc);
 
@@ -112,10 +114,10 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 		0, HEIGHT - 100, WIDTH, 30, generalDisplayArea, NULL, hInstance, NULL);
 	
 	// Notify the user that they are not running the program as an administrator and that may limit some features.
-	if (!IsUserAnAdmin()) {
+	/*if (!IsUserAnAdmin()) {
 		HWND notAdminLabel = CreateWindow(WC_STATIC, L"Note: Program is not being ran with admin perms! This\n may limit some features", WS_VISIBLE | WS_CHILD | SS_CENTER,
 			0, HEIGHT - 160, WIDTH, 30, generalDisplayArea, NULL, hInstance, NULL);
-	}
+	}*/
 
 	Spinner cpsSpinner = { 0 };
 	cpsSpinner.x = 100;
@@ -188,6 +190,13 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 	HWND saveButton = CreateWindow(WC_BUTTON, L"Save Settings", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
 		WIDTH / 2 - (80), HEIGHT - 120, 130, 35, settingsDisplayArea, SETTINGS_SAVE_BUTTON, hInstance, NULL);
 
+	/*
+	===============
+	Remember Click Display Area
+	===============
+	*/
+	HWND rememberClickLabel = CreateWindow(WC_STATIC, L"This feature will come in a future version of AutoClickerDL.", WS_VISIBLE | WS_CHILD | SS_CENTER,
+		10, HEIGHT/2 - 60, WIDTH - 30, 40, rememberClickDisplayArea, NULL, hInstance, NULL);
 	/*
 	===============
 	Window Messages
