@@ -4,6 +4,7 @@ processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 
 #include <stdio.h>
 #include <time.h>
+#include <wchar.h>
 #include <Windows.h>
 #include <Commctrl.h>
 #include <Shlobj.h>
@@ -13,11 +14,17 @@ processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 #endif
 
 #include "General.h"
+#include "IO.h"
 
 #define WIDTH 400
 #define HEIGHT 500
 
+// A macro to insert code that converts an int to a wide character array.
+#define itowc(_NAME) wchar_t _NAME[5] = { 0 };\
+	swprintf(_NAME, 4, L"%d", loadedSettings._NAME);
+
 #define SETTINGS_TIMED_CHECK_BOX 1
+#define SETTINGS_SAVE_BUTTON 2
 
 // The handle to the main window.
 HWND mainWindowHandle;
@@ -28,11 +35,16 @@ HWND tabControl, generalDisplayArea, settingsDisplayArea, rememberClickDisplayAr
 // The hotkey control for the start/stop of the Auto Clicker.
 HWND startStopHotKey;
 // The spinners
-HWND cpsSpinnerHWD, timedAutoSpinnerHWD;
+HWND cpsSpinnerHWD, timedAutoSpinnerHWD, delaySpinnerHWD;
+// The comboboxes
+HWND mouseButtonComboBoxHWD;
 
 // The timer used by the clicker. Not null when enabled, NULL when not enabled.
 UINT_PTR autoClickerTimer = NULL;
 time_t startClickerTime;
+
+// Keeps track of the current settings when the autoclicker is turned on.
+Settings currentSettings;
 
 // Process callbacks.
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
@@ -84,6 +96,9 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 		0, 23, WIDTH, HEIGHT - 23, tabControl, NULL, hInstance, NULL);
 
 
+	Settings loadedSettings = { 0 };
+	loadSettings("settings.acdl", &loadedSettings);
+
 	/*
 	===============
 	General Display Area
@@ -92,11 +107,14 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 
 	HWND infoLabel = CreateWindow(WC_STATIC, L"Welcome to AutoClickerDL! Head to the settings tab to \npick what button to enable the auto clicking!", WS_VISIBLE | WS_CHILD | SS_CENTER,
 		0, 23, WIDTH, 30, generalDisplayArea, NULL, hInstance, NULL);
+
+	HWND authorLabel = CreateWindow(WC_STATIC, L"Created by: Ryandw11", WS_VISIBLE | WS_CHILD | SS_CENTER,
+		0, HEIGHT - 100, WIDTH, 30, generalDisplayArea, NULL, hInstance, NULL);
 	
 	// Notify the user that they are not running the program as an administrator and that may limit some features.
 	if (!IsUserAnAdmin()) {
 		HWND notAdminLabel = CreateWindow(WC_STATIC, L"Note: Program is not being ran with admin perms! This\n may limit some features", WS_VISIBLE | WS_CHILD | SS_CENTER,
-			0, HEIGHT - 120, WIDTH, 30, generalDisplayArea, NULL, hInstance, NULL);
+			0, HEIGHT - 160, WIDTH, 30, generalDisplayArea, NULL, hInstance, NULL);
 	}
 
 	Spinner cpsSpinner = { 0 };
@@ -107,7 +125,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 	cpsSpinner.labelSize = 0;
 	cpsSpinner.rangeMin = 1;
 	cpsSpinner.rangeMax = 80;
-	cpsSpinner.defaultValue = L"2";
+	itowc(cps)
+	cpsSpinner.defaultValue = cps;
 	cpsSpinnerHWD = CreateSpinner(generalDisplayArea, hInstance, cpsSpinner);
 
 
@@ -120,11 +139,13 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 		10, 23, 150, 20, settingsDisplayArea, NULL, hInstance, NULL);
 	startStopHotKey = CreateWindow(HOTKEY_CLASS, L"Start/StopHotKey", WS_VISIBLE | WS_CHILD,
 		10, 43, 150, 20, settingsDisplayArea, NULL, hInstance, NULL);
-	SendMessage(startStopHotKey, HKM_SETHOTKEY, MAKEWORD(VK_F1, 0), 0);
-	RegisterHotKey(windowHandle, 0, MOD_NOREPEAT, VK_F1);
+	SendMessage(startStopHotKey, HKM_SETHOTKEY, MAKEWORD(LOBYTE(loadedSettings.hotkey), HIBYTE(loadedSettings.hotkey)), 0);
+	RegisterHotKey(windowHandle, 0, HIBYTE(loadedSettings.hotkey), LOBYTE(loadedSettings.hotkey));
 
 	HWND checkbox = CreateWindow(WC_BUTTON, L"Timed Auto Click", WS_VISIBLE | WS_CHILD | BS_CHECKBOX,
 		10, 70, 130, 20, settingsDisplayArea, SETTINGS_TIMED_CHECK_BOX, hInstance, NULL);
+	CheckDlgButton(settingsDisplayArea, SETTINGS_TIMED_CHECK_BOX, loadedSettings.timedAutoClick);
+
 	Spinner timedAutoClickSpinner = { 0 };
 	timedAutoClickSpinner.x = 10;
 	timedAutoClickSpinner.y = 100;
@@ -133,10 +154,39 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 	timedAutoClickSpinner.labelSize = 0;
 	timedAutoClickSpinner.rangeMin = 1;
 	timedAutoClickSpinner.rangeMax = 20;
-	timedAutoClickSpinner.defaultValue = L"5";
+	itowc(timedAutoClickValue);
+	timedAutoClickSpinner.defaultValue = timedAutoClickValue;
 	timedAutoSpinnerHWD = CreateSpinner(settingsDisplayArea, hInstance, timedAutoClickSpinner);
-	EnableWindow(timedAutoSpinnerHWD, FALSE);
-	EnableWindow((HWND)SendMessage(timedAutoSpinnerHWD, UDM_GETBUDDY, NULL, NULL), FALSE);
+	EnableWindow(timedAutoSpinnerHWD, loadedSettings.timedAutoClick);
+	EnableWindow((HWND)SendMessage(timedAutoSpinnerHWD, UDM_GETBUDDY, NULL, NULL), loadedSettings.timedAutoClick);
+
+	HWND delayLabel = CreateWindow(WC_STATIC, L"Delay between mouse down and up:", WS_VISIBLE | WS_CHILD,
+		10, 130, 200, 40, settingsDisplayArea, NULL, hInstance, NULL);
+	Spinner delayClickSpinner = { 0 };
+	delayClickSpinner.x = 10;
+	delayClickSpinner.y = 170;
+	delayClickSpinner.step = 10;
+	delayClickSpinner.labelPtr = L"ms";
+	delayClickSpinner.labelSize = 0;
+	delayClickSpinner.rangeMin = 0;
+	delayClickSpinner.rangeMax = 100;
+	itowc(delayTime);
+	delayClickSpinner.defaultValue = delayTime;
+	delaySpinnerHWD = CreateSpinner(settingsDisplayArea, hInstance, delayClickSpinner);
+
+	HWND mouseButtonLabel = CreateWindow(WC_STATIC, L"Mouse button to click:", WS_VISIBLE | WS_CHILD,
+		10, 200, 200, 40, settingsDisplayArea, NULL, hInstance, NULL);
+
+	mouseButtonComboBoxHWD = CreateWindow(WC_COMBOBOX, L"", CBS_HASSTRINGS | CBS_DROPDOWNLIST | WS_CHILD | WS_OVERLAPPED | WS_VISIBLE,
+		10, 220, 120, 20, settingsDisplayArea, NULL, hInstance, NULL);
+	SendMessage(mouseButtonComboBoxHWD, CB_ADDSTRING, NULL, L"Left Click");
+	SendMessage(mouseButtonComboBoxHWD, CB_ADDSTRING, NULL, L"Right Click");
+	SendMessage(mouseButtonComboBoxHWD, CB_ADDSTRING, NULL, L"Middle Click");
+	// Set the current selection for the combo box.
+	SendMessage(mouseButtonComboBoxHWD, CB_SETCURSEL, loadedSettings.mouseClickType, NULL);
+
+	HWND saveButton = CreateWindow(WC_BUTTON, L"Save Settings", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+		WIDTH / 2 - (80), HEIGHT - 120, 130, 35, settingsDisplayArea, SETTINGS_SAVE_BUTTON, hInstance, NULL);
 
 	/*
 	===============
@@ -152,6 +202,20 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 	}
 
 	return 0;
+}
+
+/*
+	Updates a settings struct with the current settings.
+
+	@param settings The pointer to the Settings struct to update.
+*/
+void updateCurrentSettings(Settings* settings) {
+	settings->cps = SendMessage(cpsSpinnerHWD, UDM_GETPOS32, NULL, NULL);
+	settings->timedAutoClick = IsDlgButtonChecked(settingsDisplayArea, SETTINGS_TIMED_CHECK_BOX);
+	settings->timedAutoClickValue = SendMessage(timedAutoSpinnerHWD, UDM_GETPOS32, NULL, NULL);
+	settings->delayTime = SendMessage(delaySpinnerHWD, UDM_GETPOS32, NULL, NULL);
+	settings->mouseClickType = SendMessage(mouseButtonComboBoxHWD, CB_GETCURSEL, NULL, NULL);
+	settings->hotkey = SendMessage(startStopHotKey, HKM_GETHOTKEY, NULL, NULL);
 }
 
 /*
@@ -188,6 +252,15 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 					EnableWindow((HWND)SendMessage(timedAutoSpinnerHWD, UDM_GETBUDDY, NULL, NULL), TRUE);
 				}
 			}
+			// Handle the clicking of the save button.
+			else if (id == SETTINGS_SAVE_BUTTON) {
+				Settings settings = { 0 };
+				updateCurrentSettings(&settings);
+				if(saveSettings("settings.acdl", &settings) == 0)
+					MessageBox(NULL, L"Your current settings have been successfuly saved!", L"Save Settings", MB_OK | MB_ICONINFORMATION);
+				else
+					MessageBox(NULL, L"Your current settings could not be saved! Does this program have the correct permissions?", L"Save Settings Error", MB_OK | MB_ICONEXCLAMATION);
+			}
 		}
 	}
 	break;
@@ -195,6 +268,34 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 		break;
 	}
 	return DefWindowProc(hwnd, uMsg, wParam, lParam);
+}
+
+/*
+	Get the mouse event type depending on the current settings.
+
+	@param up The pointer to the up variable that will be set with LEFT, RIGHT, or MIDDLEDOWN.
+	@param down The pointer to the down variable that will be set with LEFT, RIGHT, or MIDDLEUP.
+	@param settings The pointer of the settings struct to pull the mouse button setting from.
+*/
+void getMouseFromSettings(int* up, int* down, Settings* settings) {
+	switch (settings->mouseClickType) {
+	case 0:
+		(*down) = MOUSEEVENTF_LEFTDOWN;
+		(*up) = MOUSEEVENTF_LEFTUP;
+		return;
+	case 1:
+		(*down) = MOUSEEVENTF_RIGHTDOWN;
+		(*up) = MOUSEEVENTF_RIGHTUP;
+		return;
+	case 2:
+		(*down) = MOUSEEVENTF_MIDDLEDOWN;
+		(*up) = MOUSEEVENTF_MIDDLEUP;
+		return;
+	default:
+		(*down) = MOUSEEVENTF_LEFTDOWN;
+		(*up) = MOUSEEVENTF_LEFTUP;
+		return;
+	}
 }
 
 /*
@@ -245,9 +346,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 	{
 		// If the timmer is not running, trigger it.
 		if (autoClickerTimer == NULL) {
-			int pos = SendMessage(cpsSpinnerHWD, UDM_GETPOS32, NULL, NULL);
+			updateCurrentSettings(&currentSettings);
 			startClickerTime = time(NULL);
-			autoClickerTimer = SetTimer(hwnd, 1001, (1000 / pos), (TIMERPROC)NULL);
+			autoClickerTimer = SetTimer(hwnd, 1001, (1000 / currentSettings.cps), (TIMERPROC)NULL);
 		}
 		// Else, kill it.
 		else {
@@ -260,14 +361,31 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 	break;
 	case WM_TIMER:
 	{
-		// When the timmer is triggered, send a click event.
-		INPUT inputs[2] = { 0 };
+		int up = 0;
+		int down = 0;
+		getMouseFromSettings(&up, &down, &currentSettings);
+		if (currentSettings.delayTime == 0) {
+			// When the timmer is triggered, send a click event.
+			INPUT inputs[2] = { 0 };
 
-		inputs[0].type = INPUT_MOUSE;
-		inputs[0].mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_LEFTDOWN;
-		inputs[1].type = INPUT_MOUSE;
-		inputs[1].mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_LEFTUP;
-		SendInput(2, &inputs, sizeof(INPUT));
+			inputs[0].type = INPUT_MOUSE;
+			inputs[0].mi.dwFlags = MOUSEEVENTF_MOVE | down;
+			inputs[1].type = INPUT_MOUSE;
+			inputs[1].mi.dwFlags = MOUSEEVENTF_MOVE | up;
+			SendInput(2, &inputs, sizeof(INPUT));
+		}
+		else {
+			INPUT inputOne = { 0 };
+			INPUT inputTwo = { 0 };
+
+			inputOne.type = INPUT_MOUSE;
+			inputOne.mi.dwFlags = MOUSEEVENTF_MOVE | down;
+			inputTwo.type = INPUT_MOUSE;
+			inputTwo.mi.dwFlags = MOUSEEVENTF_MOVE | up;
+			SendInput(1, &inputOne, sizeof(INPUT));
+			Sleep(currentSettings.delayTime);
+			SendInput(1, &inputTwo, sizeof(INPUT));
+		}
 
 		// If timer mode is enabled, shut off the timer if over time.
 		if (IsDlgButtonChecked(settingsDisplayArea, SETTINGS_TIMED_CHECK_BOX) && time(NULL) - startClickerTime  >= SendMessage(timedAutoSpinnerHWD, UDM_GETPOS32, NULL, NULL)) {
