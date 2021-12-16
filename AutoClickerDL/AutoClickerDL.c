@@ -53,6 +53,13 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 
 // Main method.
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine, int nCmdShow) {
+	// Prevent more than 1 instance of the program from running.
+	HANDLE mutexHandle = CreateMutex(NULL, TRUE, L"com_ryandw11_autoclickerdl");
+	if (GetLastError() == ERROR_ALREADY_EXISTS) {
+		MessageBox(NULL, L"AutoClickerDL is already running! Please close the exisiting instance of the program before opening it again.", L"AutoClickerDL Already Open", MB_OK | MB_ICONERROR);
+		return 0;
+	}
+
 	// Class name of the window.
 	const wchar_t CLASS_NAME[] = L"AutoClickerDL Window Class";
 
@@ -209,6 +216,9 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 		TranslateMessage(&msg);
 		DispatchMessage(&msg);
 	}
+
+	ReleaseMutex(mutexHandle);
+	CloseHandle(mutexHandle);
 
 	return 0;
 }
