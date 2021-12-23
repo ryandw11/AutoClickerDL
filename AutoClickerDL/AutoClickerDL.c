@@ -26,6 +26,11 @@ processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 
 #define SETTINGS_TIMED_CHECK_BOX 1
 #define SETTINGS_SAVE_BUTTON 2
+#define REMEMBER_SAVE_RECORDING 3
+#define REMEMBER_LOAD_RECORDING 4
+#define AUTO_CLICK_HOTKEY 5
+#define REMEMBER_HOTKEY 6
+#define REMEMBER_PLAY_HOTKEY 7
 
 // The handle to the main window.
 HWND mainWindowHandle;
@@ -34,22 +39,34 @@ HWND mainWindowHandle;
 HWND tabControl, generalDisplayArea, settingsDisplayArea, rememberClickDisplayArea;
 
 // The hotkey control for the start/stop of the Auto Clicker.
-HWND startStopHotKey;
+HWND startStopHotKey, rmbClkRecordHK, rmbClkRecordPlayHK;
 // The spinners
 HWND cpsSpinnerHWD, timedAutoSpinnerHWD, delaySpinnerHWD;
 // The comboboxes
 HWND mouseButtonComboBoxHWD;
+// The labels
+HWND rememberClickStatus;
+// Buttons
+HWND saveRecordingButton;
 
 // The timer used by the clicker. Not null when enabled, NULL when not enabled.
 UINT_PTR autoClickerTimer = NULL;
 time_t startClickerTime;
 
+// Keep track of the state of a recording.
+RecordingState recordingState;
+
 // Keeps track of the current settings when the autoclicker is turned on.
 Settings currentSettings;
+
+HHOOK mouseHook;
 
 // Process callbacks.
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 LRESULT CALLBACK SettingsProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+LRESULT CALLBACK RememberProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+
+LRESULT CALLBACK LowLevelMouseProc(int nCode, WPARAM wParam, LPARAM lParam);
 
 // Main method.
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine, int nCmdShow) {
@@ -101,8 +118,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 	generalDisplayArea = CreateWindow(WC_STATIC, L"", WS_CHILD | WS_VISIBLE | WS_BORDER,
 		0, 23, WIDTH, HEIGHT-23, tabControl, NULL, hInstance, NULL);
 	settingsDisplayArea = CreateTabDisplayArea(tabControl, hInstance, L"SettingsDisplayArea", 0, 23, WIDTH, HEIGHT - 23, SettingsProc);
-	rememberClickDisplayArea = CreateWindow(WC_STATIC, L"", WS_CHILD | WS_BORDER,
-		0, 23, WIDTH, HEIGHT - 23, tabControl, NULL, hInstance, NULL);
+	rememberClickDisplayArea = CreateTabDisplayArea(tabControl, hInstance, L"RememberDisplayArea", 0, 23, WIDTH, HEIGHT - 23, RememberProc);
 
 
 	Settings loadedSettings = { 0 };
@@ -147,9 +163,9 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 	HWND hotKeyLabel = CreateWindow(WC_STATIC, L"Start/Stop Auto Clicker:", WS_VISIBLE | WS_CHILD,
 		10, 23, 150, 20, settingsDisplayArea, NULL, hInstance, NULL);
 	startStopHotKey = CreateWindow(HOTKEY_CLASS, L"Start/StopHotKey", WS_VISIBLE | WS_CHILD,
-		10, 43, 150, 20, settingsDisplayArea, NULL, hInstance, NULL);
+		10, 43, 150, 20, settingsDisplayArea, AUTO_CLICK_HOTKEY, hInstance, NULL);
 	SendMessage(startStopHotKey, HKM_SETHOTKEY, MAKEWORD(LOBYTE(loadedSettings.hotkey), HIBYTE(loadedSettings.hotkey)), 0);
-	RegisterHotKey(windowHandle, 0, HIBYTE(loadedSettings.hotkey), LOBYTE(loadedSettings.hotkey));
+	RegisterHotKey(windowHandle, AUTO_CLICK_HOTKEY, HIBYTE(loadedSettings.hotkey), LOBYTE(loadedSettings.hotkey));
 
 	HWND checkbox = CreateWindow(WC_BUTTON, L"Timed Auto Click", WS_VISIBLE | WS_CHILD | BS_CHECKBOX,
 		10, 70, 130, 20, settingsDisplayArea, SETTINGS_TIMED_CHECK_BOX, hInstance, NULL);
@@ -202,8 +218,33 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 	Remember Click Display Area
 	===============
 	*/
-	HWND rememberClickLabel = CreateWindow(WC_STATIC, L"This feature will come in a future version of AutoClickerDL.", WS_VISIBLE | WS_CHILD | SS_CENTER,
+
+	HWND rmbClkRecordHKLabel = CreateWindow(WC_STATIC, L"Start/Stop Recording Hot Key:", WS_VISIBLE | WS_CHILD,
+			10, 10, 200, 20, rememberClickDisplayArea, NULL, hInstance, NULL);
+	rmbClkRecordHK = CreateWindow(HOTKEY_CLASS, L"RmbClkRecordStartHotKey", WS_VISIBLE | WS_CHILD,
+		10, 33, 150, 20, rememberClickDisplayArea, REMEMBER_HOTKEY, hInstance, NULL);
+	SendMessage(rmbClkRecordHK, HKM_SETHOTKEY, MAKEWORD(LOBYTE(loadedSettings.rmbStartHotkey), HIBYTE(loadedSettings.rmbStartHotkey)), 0);
+	RegisterHotKey(windowHandle, REMEMBER_HOTKEY, HIBYTE(loadedSettings.rmbStartHotkey), LOBYTE(loadedSettings.rmbStartHotkey));
+
+	HWND rmbClkRecordPlayHKLabel = CreateWindow(WC_STATIC, L"Play Recording Hot Key:", WS_VISIBLE | WS_CHILD,
+		10, 58, 170, 20, rememberClickDisplayArea, NULL, hInstance, NULL);
+	rmbClkRecordPlayHK = CreateWindow(HOTKEY_CLASS, L"RmbClkRecordStopHotKey", WS_VISIBLE | WS_CHILD,
+		10, 78, 150, 20, rememberClickDisplayArea, REMEMBER_PLAY_HOTKEY, hInstance, NULL);
+	SendMessage(rmbClkRecordPlayHK, HKM_SETHOTKEY, MAKEWORD(LOBYTE(loadedSettings.rmbPlayHotKey), HIBYTE(loadedSettings.rmbPlayHotKey)), 0);
+	RegisterHotKey(windowHandle, REMEMBER_PLAY_HOTKEY, HIBYTE(loadedSettings.rmbPlayHotKey), LOBYTE(loadedSettings.rmbPlayHotKey));
+
+	rememberClickStatus = CreateWindow(WC_STATIC, L"Load or create a Remember Click recording.", WS_VISIBLE | WS_CHILD | SS_CENTER,
 		10, HEIGHT/2 - 60, WIDTH - 30, 40, rememberClickDisplayArea, NULL, hInstance, NULL);
+
+	saveRecordingButton = CreateWindow(WC_BUTTON, L"Save Recording", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+		WIDTH / 2 - (80), HEIGHT - 160, 130, 35, rememberClickDisplayArea, REMEMBER_SAVE_RECORDING, hInstance, NULL);
+	EnableWindow(saveRecordingButton, FALSE);
+	HWND loadRecordingButton = CreateWindow(WC_BUTTON, L"Load Recording", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+		WIDTH / 2 - (80), HEIGHT - 120, 130, 35, rememberClickDisplayArea, REMEMBER_LOAD_RECORDING, hInstance, NULL);
+
+	// Initalize the state of the recording.
+	InitRecordingState(&recordingState);
+
 	/*
 	===============
 	Window Messages
@@ -235,6 +276,29 @@ void updateCurrentSettings(Settings* settings) {
 	settings->delayTime = SendMessage(delaySpinnerHWD, UDM_GETPOS32, NULL, NULL);
 	settings->mouseClickType = SendMessage(mouseButtonComboBoxHWD, CB_GETCURSEL, NULL, NULL);
 	settings->hotkey = SendMessage(startStopHotKey, HKM_GETHOTKEY, NULL, NULL);
+	settings->rmbStartHotkey = SendMessage(rmbClkRecordHK, HKM_GETHOTKEY, NULL, NULL);
+	settings->rmbPlayHotKey = SendMessage(rmbClkRecordPlayHK, HKM_GETHOTKEY, NULL, NULL);
+}
+
+BOOL isHotkeyAlreadyInUse(int hotkeyID, int hotkey) {
+	if (hotkeyID != AUTO_CLICK_HOTKEY && hotkey == SendMessage(startStopHotKey, HKM_GETHOTKEY, NULL, NULL)) {
+		return TRUE;
+	}
+	if (hotkeyID != REMEMBER_HOTKEY && hotkey == SendMessage(rmbClkRecordHK, HKM_GETHOTKEY, NULL, NULL)) {
+		return TRUE;
+	}
+	if (hotkeyID != REMEMBER_PLAY_HOTKEY && hotkey == SendMessage(rmbClkRecordPlayHK, HKM_GETHOTKEY, NULL, NULL)) {
+		return TRUE;
+	}
+	return FALSE;
+}
+
+BOOL isHotkeyControlInFocus() {
+	HWND handle = GetFocus();
+	if (handle == startStopHotKey || handle == rmbClkRecordHK || handle == rmbClkRecordPlayHK) {
+		return TRUE;
+	}
+	return FALSE;
 }
 
 /*
@@ -249,11 +313,13 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 		if (cmd == EN_CHANGE) {
 			// Identification of the hotkey control.
 			int loword = LOWORD(wParam);
-			if (loword == 0) {
+			if (loword == AUTO_CLICK_HOTKEY) {
 				// Unregister and re-register global hot key with the change.
-				UnregisterHotKey(mainWindowHandle, 0);
+				UnregisterHotKey(mainWindowHandle, AUTO_CLICK_HOTKEY);
 				int result = SendMessage(startStopHotKey, HKM_GETHOTKEY, NULL, NULL);
-				RegisterHotKey(mainWindowHandle, 0, HIBYTE(result), LOBYTE(result));
+				RegisterHotKey(mainWindowHandle, AUTO_CLICK_HOTKEY, HIBYTE(result), LOBYTE(result));
+				if(LOBYTE(result) != 0)
+					SetFocus(mainWindowHandle);
 			}
 		}
 		else if (cmd == BN_CLICKED) {
@@ -279,6 +345,40 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 					MessageBox(NULL, L"Your current settings have been successfuly saved!", L"Save Settings", MB_OK | MB_ICONINFORMATION);
 				else
 					MessageBox(NULL, L"Your current settings could not be saved! Does this program have the correct permissions?", L"Save Settings Error", MB_OK | MB_ICONEXCLAMATION);
+			}
+		}
+	}
+	break;
+	default:
+		break;
+	}
+	return DefWindowProc(hwnd, uMsg, wParam, lParam);
+}
+
+LRESULT CALLBACK RememberProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+	switch (uMsg) {
+	case WM_COMMAND:
+	{
+		int cmd = HIWORD(wParam);
+		// Triggered by the hotkey change.
+		if (cmd == EN_CHANGE) {
+			// Identification of the hotkey control.
+			int loword = LOWORD(wParam);
+			if (loword == REMEMBER_HOTKEY) {
+				// Unregister and re-register global hot key with the change.
+				UnregisterHotKey(mainWindowHandle, REMEMBER_HOTKEY);
+				int result = SendMessage(rmbClkRecordHK, HKM_GETHOTKEY, NULL, NULL);
+				RegisterHotKey(mainWindowHandle, REMEMBER_HOTKEY, HIBYTE(result), LOBYTE(result));
+				if (LOBYTE(result) != 0)
+					SetFocus(mainWindowHandle);
+			}
+			else if (loword == REMEMBER_PLAY_HOTKEY) {
+				// Unregister and re-register global hot key with the change.
+				UnregisterHotKey(mainWindowHandle, REMEMBER_PLAY_HOTKEY);
+				int result = SendMessage(rmbClkRecordPlayHK, HKM_GETHOTKEY, NULL, NULL);
+				RegisterHotKey(mainWindowHandle, REMEMBER_PLAY_HOTKEY, HIBYTE(result), LOBYTE(result));
+				if (LOBYTE(result) != 0)
+					SetFocus(mainWindowHandle);
 			}
 		}
 	}
@@ -363,16 +463,61 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 	// When a global hotkey for the program is triggered.
 	case WM_HOTKEY:
 	{
-		// If the timmer is not running, trigger it.
-		if (autoClickerTimer == NULL) {
-			updateCurrentSettings(&currentSettings);
-			startClickerTime = time(NULL);
-			autoClickerTimer = SetTimer(hwnd, 1001, (1000 / currentSettings.cps), (TIMERPROC)NULL);
+		switch (wParam) {
+		case AUTO_CLICK_HOTKEY:
+		{
+			// If a hotkey contorl is in focus, don't trigger the auto clicker.
+			if (isHotkeyControlInFocus() || recordingState.state == REC_STATE_PLAYING || recordingState.state == REC_STATE_RECORDING) {
+				return;
+			}
+			// If the timmer is not running, trigger it.
+			if (autoClickerTimer == NULL) {
+				updateCurrentSettings(&currentSettings);
+				startClickerTime = time(NULL);
+				autoClickerTimer = SetTimer(hwnd, 1001, (1000 / currentSettings.cps), (TIMERPROC)NULL);
+			}
+			// Else, kill it.
+			else {
+				KillTimer(hwnd, autoClickerTimer);
+				autoClickerTimer = NULL;
+			}
 		}
-		// Else, kill it.
-		else {
-			KillTimer(hwnd, autoClickerTimer);
-			autoClickerTimer = NULL;
+		break;
+		case REMEMBER_HOTKEY:
+		{
+			// If a hotkey contorl is in focus, don't trigger the recording.
+			if (isHotkeyControlInFocus()) {
+				return;
+			}
+			if (autoClickerTimer != NULL) {
+				return;
+			}
+			if (recordingState.state == REC_STATE_NONE || recordingState.state == REC_STATE_LOADED) {
+				// Set the program to record.
+				recordingState.state = REC_STATE_RECORDING;
+				// Set the previous system time to the current number of milliseconds since the system started.
+				recordingState.prevoiusSystemTime = GetTickCount();
+				mouseHook = SetWindowsHookEx(WH_MOUSE_LL, LowLevelMouseProc, GetModuleHandle(NULL), 0);
+				SetWindowText(rememberClickStatus, L"Recording clicks...");
+			}
+			else if (recordingState.state == REC_STATE_RECORDING) {
+				recordingState.state = REC_STATE_LOADED;
+				recordingState.prevoiusSystemTime = 0;
+				recordingState.previousClick = recordingState.startOfRecording;
+				UnhookWindowsHookEx(mouseHook);
+				mouseHook = NULL;
+				EnableWindow(saveRecordingButton, TRUE);
+				wchar_t str[200] = {0};
+				swprintf(str, 200, L"Recording loaded with %d mouse clicks!\0", recordingState.numberOfClicks);
+				SetWindowText(rememberClickStatus, str);
+			}
+		}
+		break;
+		case REMEMBER_PLAY_HOTKEY:
+		{
+
+		}
+		break;
 		}
 
 		
@@ -415,4 +560,26 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 	break;
 	}
 	return DefWindowProc(hwnd, uMsg, wParam, lParam);
+}
+
+LRESULT CALLBACK LowLevelMouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
+	if(nCode < 0 || recordingState.state != REC_STATE_RECORDING)
+		return CallNextHookEx(NULL, nCode, wParam, lParam);
+	int mcType = WMToMC(wParam);
+	// Unknown / unwanted action, skip.
+	if(mcType == 0)
+		return CallNextHookEx(NULL, nCode, wParam, lParam);
+	MouseClick mc = { 0 };
+	mc.nextClick = NULL;
+	mc.type = mcType;
+	mc.delay = GetTickCount() - recordingState.prevoiusSystemTime;
+	// Set the previous system time to the current number of milliseconds since the system started.
+	recordingState.prevoiusSystemTime = GetTickCount();
+	POINT p = { 0 };
+	GetCursorPos(&p);
+	mc.x = p.x;
+	mc.y = p.y;
+	AddMouseClickToState(&recordingState, mc);
+
+	return CallNextHookEx(NULL, nCode, wParam, lParam);
 }

@@ -58,3 +58,52 @@ HWND CreateSpinner(HWND parent, HINSTANCE hInstance, Spinner spinner) {
 
 	return (spinnerUpDown);
 }
+
+int WMToMC(int wParam) {
+	switch (wParam)
+	{
+	case WM_LBUTTONDOWN:
+		return MC_TYPE_LEFT_DOWN;
+	case WM_LBUTTONUP:
+		return MC_TYPE_LEFT_UP;
+	case WM_RBUTTONDOWN:
+		return MC_TYPE_RIGHT_DOWN;
+	case WM_RBUTTONUP:
+		return MC_TYPE_RIGHT_UP;
+	case WM_MBUTTONDOWN:
+		return MC_TYPE_MIDDLE_DOWN;
+	case WM_MBUTTONUP:
+		return MC_TYPE_MIDDLE_UP;
+	default:
+		break;
+	}
+	return 0;
+}
+
+
+void InitRecordingState(RecordingState* state) {
+	state->numberOfClicks = 0;
+	state->startOfRecording = NULL;
+	state->previousClick = NULL;
+	state->state = REC_STATE_NONE;
+	state->prevoiusSystemTime = 0;
+}
+
+void AddMouseClickToState(RecordingState* recState, MouseClick mouseClick) {
+	MouseClick* permElem = (MouseClick*)malloc(sizeof(MouseClick));
+	permElem->type = mouseClick.type;
+	permElem->delay = mouseClick.delay;
+	permElem->nextClick = NULL;
+	permElem->x = mouseClick.x;
+	permElem->y = mouseClick.y;
+	
+	if (recState->numberOfClicks == 0) {
+		recState->startOfRecording = permElem;
+		recState->previousClick = permElem;
+		recState->numberOfClicks = 1;
+		return;
+	}
+	recState->previousClick->nextClick = permElem;
+	recState->previousClick = permElem;
+	recState->numberOfClicks++;
+}

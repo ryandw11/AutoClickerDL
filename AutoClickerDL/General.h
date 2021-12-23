@@ -5,6 +5,34 @@
 
 #define AutoClickerDL_VER_NUM 1
 
+#define MC_TYPE_LEFT_DOWN 1
+#define MC_TYPE_MIDDLE_DOWN 2
+#define MC_TYPE_RIGHT_DOWN 3
+#define MC_TYPE_LEFT_UP 4
+#define MC_TYPE_MIDDLE_UP 5
+#define MC_TYPE_RIGHT_UP 6
+
+#define REC_STATE_NONE 1
+#define REC_STATE_LOADED 2
+#define REC_STATE_RECORDING 3
+#define REC_STATE_PLAYING 4
+
+typedef struct {
+	int type;
+	int delay;
+	LONG x;
+	LONG y;
+	struct MouseClick* nextClick;
+} MouseClick;
+
+typedef struct {
+	int state;
+	MouseClick* startOfRecording;
+	MouseClick* previousClick;
+	DWORD prevoiusSystemTime;
+	int numberOfClicks;
+} RecordingState;
+
 typedef struct {
 	int cps;
 	BOOL timedAutoClick;
@@ -12,6 +40,8 @@ typedef struct {
 	int delayTime;
 	int mouseClickType;
 	int hotkey;
+	int rmbStartHotkey;
+	int rmbPlayHotKey;
 } Settings;
 
 typedef struct {
@@ -28,5 +58,10 @@ typedef struct {
 HWND CreateTabDisplayArea(HWND parent, HINSTANCE hInstance, LPCWSTR className, int width, int height, WNDPROC procCallback);
 HWND CreateSpinner(HWND parent, HINSTANCE hInstance, Spinner spinner);
 HWND CreateCheckBox(HWND parent, HINSTANCE hInstance, LPCWSTR text, int x, int y, int width, int height, WNDPROC procCallback);
+
+int WMToMC(int wParam);
+
+void InitRecordingState(RecordingState*);
+void AddMouseClickToState(RecordingState*, MouseClick);
 
 #endif
