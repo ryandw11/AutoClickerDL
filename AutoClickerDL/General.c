@@ -61,6 +61,12 @@ HWND CreateSpinner(HWND parent, HINSTANCE hInstance, Spinner spinner) {
 	return (spinnerUpDown);
 }
 
+/**
+	Convert Windows Mouse (provided from windows mouse hook) value into the Mouse Click Type value.
+
+	@param wParam The WM value (example: WM_LBUTTONDOWN).
+	@returns The MC value (example: MC_TYPE_LEFT_DOWN). (Returns MC_TYPE_ERROR if not valid).
+*/
 int WMToMC(int wParam) {
 	switch (wParam)
 	{
@@ -82,6 +88,12 @@ int WMToMC(int wParam) {
 	return 0;
 }
 
+/*
+	Convert a MC Type to a Mouse Event Type.
+	
+	@param mc The mouse click type. (Example: MC_TYPE_LEFT_DOWN).
+	@returns The event mouse type. (Example: MOUSEEVENTF_LEFTDOWN) (Returns MC_TYPE_ERROR if invalid input).
+*/
 int MCToEventMouse(int mc) {
 	switch (mc) {
 	case MC_TYPE_LEFT_DOWN:
@@ -101,6 +113,11 @@ int MCToEventMouse(int mc) {
 	}
 }
 
+/**
+	Initalize the recording state. (Note: the default state is NONE).
+
+	@param The pointer to the recording state to initalize.
+*/
 void InitRecordingState(RecordingState* state) {
 	state->numberOfClicks = 0;
 	state->startOfRecording = NULL;
@@ -109,6 +126,12 @@ void InitRecordingState(RecordingState* state) {
 	state->prevoiusSystemTime = 0;
 }
 
+/**
+	Add a mouse click the recording. (This will take care of every case and increment the numberOfClicks field).
+
+	@param recState The pointer to the recording state to add the mouse click to.
+	@param mouseClick The mouse click struct to add. (Note: mouseClick.nextClick does not need to be set).
+*/
 void AddMouseClickToState(RecordingState* recState, MouseClick mouseClick) {
 	MouseClick* permElem = (MouseClick*)malloc(sizeof(MouseClick));
 	permElem->type = mouseClick.type;
@@ -128,10 +151,21 @@ void AddMouseClickToState(RecordingState* recState, MouseClick mouseClick) {
 	recState->numberOfClicks++;
 }
 
+/**
+	Get the next mouse click for the recording state. (If the end of the recording is reached, it will look back to the begining). 
+	Get the pointer to the MouseClick struct from `recState.prevoiusClick`.
+
+	@param recState The recording state to get the next mouse click from.
+*/
 void NextMouseClick(RecordingState* recState) {
 	recState->previousClick = recState->previousClick->nextClick == NULL ? recState->startOfRecording : recState->previousClick->nextClick;
 }
 
+/**
+	Delete (free) the memory used by the recording state. (Note: you should call InitRecordingState() if you intended on reusing the same struct).
+
+	@param state The recording state to free the memory from.
+*/
 void DeleteRecordingState(RecordingState* state) {
 	if (state->numberOfClicks == 0) return;
 	state->previousClick = state->startOfRecording;
@@ -146,6 +180,15 @@ void DeleteRecordingState(RecordingState* state) {
 	state->state = REC_STATE_NONE;
 }
 
+/**
+	Save a recording state to a file.  
+	Note: The `previousClick` field of the recording state will be mutated.
+
+	@param state The recording state to save to a file.
+	@param location The location and name of the file to save to. (This is intented to be the output of a save file dialog box).
+
+	@returns If the save was successful.
+*/
 BOOL SaveRecordingState(RecordingState* state, LPCWSTR location) {
 	#pragma warning(disable: 4996)
 
@@ -174,6 +217,15 @@ BOOL SaveRecordingState(RecordingState* state, LPCWSTR location) {
 	return TRUE;
 }
 
+/**
+	Load a recording state from a file.  
+	Note: This will delete the passed in recording state an re-initalize it.  
+
+	@param state The recording state to load into.
+	@param location The location and name of the file to load. (Note: this is intended to be the output of an open file dialog box).
+
+	@returns If the recording was successfully loaded. (If not, the recording state will be the default initalized state of NONE).
+*/
 BOOL LoadRecordingState(RecordingState* state, LPCWSTR location) {
 	#pragma warning(disable: 4996)
 	DeleteRecordingState(state);

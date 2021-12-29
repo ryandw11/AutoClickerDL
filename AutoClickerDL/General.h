@@ -18,22 +18,41 @@
 #define REC_STATE_RECORDING 3
 #define REC_STATE_PLAYING 4
 
+/*
+	The representation of a MouseClick for use with the Remeber Click feature.
+*/
 typedef struct {
+	// The type of click (denoted by MC_TYPE_ macros).
 	int type;
+	// The delay (in milliseconds) from the previous click.
 	int delay;
+	// The x position.
 	LONG x;
+	// The y position.
 	LONG y;
+	// The pointer to the next click in the recording.
 	struct MouseClick* nextClick;
 } MouseClick;
 
+/*
+	The current state of the recording system for the Remember Click feature.
+*/
 typedef struct {
+	// The current state (denoted by REC_STATE_ macros).
 	int state;
+	// The first click in a recording.
 	MouseClick* startOfRecording;
+	// The previous click that was done in a recording.
 	MouseClick* previousClick;
+	// The previous system time in milliseconds.
 	DWORD prevoiusSystemTime;
+	// The number of clicks stored.
 	int numberOfClicks;
 } RecordingState;
 
+/*
+	The struct that contains all of the settings for the program.
+*/
 typedef struct {
 	int cps;
 	BOOL timedAutoClick;
@@ -45,6 +64,9 @@ typedef struct {
 	int rmbPlayHotKey;
 } Settings;
 
+/*
+	The struct used to define the properties of a spinner for creation.
+*/
 typedef struct {
 	int x;
 	int y;

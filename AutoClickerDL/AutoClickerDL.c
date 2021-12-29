@@ -62,16 +62,22 @@ RecordingState recordingState;
 // Keeps track of the current settings when the autoclicker is turned on.
 Settings currentSettings;
 
+// The hook handle for the mouse hook.
 HHOOK mouseHook;
+
+// The normal and activated icons.
+HICON normalIcon, clickActivatedIcon;
 
 // Process callbacks.
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 LRESULT CALLBACK SettingsProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 LRESULT CALLBACK RememberProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
-
+// Hook Callback
 LRESULT CALLBACK LowLevelMouseProc(int nCode, WPARAM wParam, LPARAM lParam);
 
-// Main method.
+/*
+	This is the main method for the program.
+*/
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine, int nCmdShow) {
 	// Prevent more than 1 instance of the program from running.
 	HANDLE mutexHandle = CreateMutex(NULL, TRUE, L"com_ryandw11_autoclickerdl");
@@ -83,12 +89,17 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 	// Class name of the window.
 	const wchar_t CLASS_NAME[] = L"AutoClickerDL Window Class";
 
+	// Load the icons
+	normalIcon = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_ICON1));
+	clickActivatedIcon = LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(IDI_ICON2));
+
+	// Create and register the primary window class.
 	WNDCLASS wc = { 0 };
 	wc.lpfnWndProc = WindowProc;
 	wc.hInstance = hInstance;
 	wc.hCursor = LoadCursor(hInstance, IDC_ARROW);
 	wc.lpszClassName = CLASS_NAME;
-	wc.hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_ICON1));
+	wc.hIcon = normalIcon;
 
 	RegisterClass(&wc);
 
@@ -97,6 +108,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 		(WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX), CW_USEDEFAULT, CW_USEDEFAULT, WIDTH, HEIGHT,
 		NULL, NULL, hInstance, NULL);
 
+	// If failed, return.
 	if (windowHandle == NULL) {
 		return 0;
 	}
@@ -283,19 +295,11 @@ void updateCurrentSettings(Settings* settings) {
 	settings->rmbPlayHotKey = SendMessage(rmbClkRecordPlayHK, HKM_GETHOTKEY, NULL, NULL);
 }
 
-BOOL isHotkeyAlreadyInUse(int hotkeyID, int hotkey) {
-	if (hotkeyID != AUTO_CLICK_HOTKEY && hotkey == SendMessage(startStopHotKey, HKM_GETHOTKEY, NULL, NULL)) {
-		return TRUE;
-	}
-	if (hotkeyID != REMEMBER_HOTKEY && hotkey == SendMessage(rmbClkRecordHK, HKM_GETHOTKEY, NULL, NULL)) {
-		return TRUE;
-	}
-	if (hotkeyID != REMEMBER_PLAY_HOTKEY && hotkey == SendMessage(rmbClkRecordPlayHK, HKM_GETHOTKEY, NULL, NULL)) {
-		return TRUE;
-	}
-	return FALSE;
-}
+/**
+	Checks if one of the hot key controls are in focus.
 
+	@returns If one of the hotkey controls are in focus.
+*/
 BOOL isHotkeyControlInFocus() {
 	HWND handle = GetFocus();
 	if (handle == startStopHotKey || handle == rmbClkRecordHK || handle == rmbClkRecordPlayHK) {
@@ -325,6 +329,7 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 					SetFocus(mainWindowHandle);
 			}
 		}
+		// Handle a button being clicked.
 		else if (cmd == BN_CLICKED) {
 			int id = LOWORD(wParam);
 			// Handle the check click for the timed checkbox.
@@ -358,6 +363,9 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 	return DefWindowProc(hwnd, uMsg, wParam, lParam);
 }
 
+/*
+	The process callback for the remember display area.
+*/
 LRESULT CALLBACK RememberProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 	switch (uMsg) {
 	case WM_COMMAND:
@@ -384,9 +392,12 @@ LRESULT CALLBACK RememberProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 					SetFocus(mainWindowHandle);
 			}
 		}
+		// Triggered by a button press.
 		else if (cmd == BN_CLICKED) {
 			int id = LOWORD(wParam);
+			// If the load recording button was pressed.
 			if (id == REMEMBER_LOAD_RECORDING) {
+				// Only trigger if the recording state is loaded or none.
 				if (!(recordingState.state == REC_STATE_LOADED || recordingState.state == REC_STATE_NONE)) {
 					break;
 				}
@@ -416,7 +427,9 @@ LRESULT CALLBACK RememberProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 					}
 				}
 			}
+			// If the save recording button was pressed.
 			else if (id == REMEMBER_SAVE_RECORDING) {
+				// Only trigger if the recording state is loaded.
 				if (recordingState.state != REC_STATE_LOADED) {
 					break;
 				}
@@ -445,6 +458,8 @@ LRESULT CALLBACK RememberProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 	break;
 	case WM_TIMER:
 	{
+		// This timer is triggered by the remember click play hotkey.
+
 		MouseClick* currentClick = recordingState.previousClick;
 		if (GetTickCount() - recordingState.prevoiusSystemTime < currentClick->delay) {
 			break;
@@ -543,6 +558,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 	case WM_HOTKEY:
 	{
 		switch (wParam) {
+		// If the hotkey for the autoclicker was pressed.
 		case AUTO_CLICK_HOTKEY:
 		{
 			// If a hotkey contorl is in focus, don't trigger the auto clicker.
@@ -554,14 +570,17 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 				updateCurrentSettings(&currentSettings);
 				startClickerTime = time(NULL);
 				autoClickerTimer = SetTimer(hwnd, 1001, (1000 / currentSettings.cps), (TIMERPROC)NULL);
+				SetClassLong(hwnd, GCL_HICON, clickActivatedIcon);
 			}
 			// Else, kill it.
 			else {
 				KillTimer(hwnd, autoClickerTimer);
 				autoClickerTimer = NULL;
+				SetClassLong(hwnd, GCL_HICON, normalIcon);
 			}
 		}
 		break;
+		// If the hotkey to remember the clicks was pressed.
 		case REMEMBER_HOTKEY:
 		{
 			// If a hotkey contorl is in focus, don't trigger the recording.
@@ -571,7 +590,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 			if (autoClickerTimer != NULL) {
 				return;
 			}
+			// If the recording state is none or loaded, then start recording.
 			if (recordingState.state == REC_STATE_NONE || recordingState.state == REC_STATE_LOADED) {
+				// Delete the existing data if the recording is loaded.
 				if (recordingState.state == REC_STATE_LOADED) {
 					DeleteRecordingState(&recordingState);
 					InitRecordingState(&recordingState);
@@ -582,20 +603,27 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 				recordingState.prevoiusSystemTime = GetTickCount();
 				mouseHook = SetWindowsHookEx(WH_MOUSE_LL, LowLevelMouseProc, GetModuleHandle(NULL), 0);
 				SetWindowText(rememberClickStatus, L"Recording clicks...");
+				// Change the icon to gray.
+				SetClassLong(hwnd, GCL_HICON, clickActivatedIcon);
 			}
+			// If the program is currently recording mouse clicks, stop the recording.
 			else if (recordingState.state == REC_STATE_RECORDING) {
 				recordingState.state = REC_STATE_LOADED;
 				recordingState.prevoiusSystemTime = 0;
 				recordingState.previousClick = recordingState.startOfRecording;
+				// Unhook the mouse hook to prevent lag if an error were to occur.
 				UnhookWindowsHookEx(mouseHook);
 				mouseHook = NULL;
 				EnableWindow(saveRecordingButton, TRUE);
 				wchar_t str[200] = {0};
 				swprintf(str, 200, L"Recording loaded with %d mouse clicks!\0", recordingState.numberOfClicks);
 				SetWindowText(rememberClickStatus, str);
+				// Change the icon back to normal.
+				SetClassLong(hwnd, GCL_HICON, normalIcon);
 			}
 		}
 		break;
+		// If the play recording hotkey was pressed.
 		case REMEMBER_PLAY_HOTKEY:
 		{
 			if (isHotkeyControlInFocus()) {
@@ -604,6 +632,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 			if (autoClickerTimer != NULL) {
 				return;
 			}
+			// If the state is loaded, then play the recording.
 			if (recordingState.state == REC_STATE_LOADED) {
 				recordingState.state = REC_STATE_PLAYING;
 				recordingState.prevoiusSystemTime = GetTickCount();
@@ -613,8 +642,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 
 				recordingState.previousClick = recordingState.startOfRecording;
 				rememberClickTimer = SetTimer(rememberClickDisplayArea, 1002, USER_TIMER_MINIMUM, (TIMERPROC)NULL);
+				SetClassLong(hwnd, GCL_HICON, clickActivatedIcon);
 			}
-			else if (recordingState.state = REC_STATE_PLAYING) {
+			// If a recording is being played, stop the recording.
+			else if (recordingState.state == REC_STATE_PLAYING) {
 				KillTimer(rememberClickDisplayArea, rememberClickTimer);
 				recordingState.state = REC_STATE_LOADED;
 				recordingState.prevoiusSystemTime = 0;
@@ -622,6 +653,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 				wchar_t str[200] = { 0 };
 				swprintf(str, 200, L"Recording loaded with %d mouse clicks!\0", recordingState.numberOfClicks);
 				SetWindowText(rememberClickStatus, str);
+				SetClassLong(hwnd, GCL_HICON, normalIcon);
 			}
 		}
 		break;
@@ -630,6 +662,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 		
 	}
 	break;
+	// This timer is for the normal auto clicker.
 	case WM_TIMER:
 	{
 		int up = 0;
@@ -669,6 +702,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 	return DefWindowProc(hwnd, uMsg, wParam, lParam);
 }
 
+/*
+	This is the callback for the mouse hook.
+
+	The mouse hook is set when the remember click record hotkey is pressed.
+*/
 LRESULT CALLBACK LowLevelMouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
 	if(nCode < 0 || recordingState.state != REC_STATE_RECORDING)
 		return CallNextHookEx(NULL, nCode, wParam, lParam);
