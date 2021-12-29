@@ -53,6 +53,9 @@ HWND saveRecordingButton;
 UINT_PTR autoClickerTimer = NULL;
 time_t startClickerTime;
 
+// The timer used for the remember click play timer.
+UINT_PTR rememberClickTimer = NULL;
+
 // Keep track of the state of a recording.
 RecordingState recordingState;
 
@@ -381,6 +384,82 @@ LRESULT CALLBACK RememberProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 					SetFocus(mainWindowHandle);
 			}
 		}
+		else if (cmd == BN_CLICKED) {
+			int id = LOWORD(wParam);
+			if (id == REMEMBER_LOAD_RECORDING) {
+				if (!(recordingState.state == REC_STATE_LOADED || recordingState.state == REC_STATE_NONE)) {
+					break;
+				}
+				OPENFILENAME ofn;
+				TCHAR szFile[260] = { 0 };
+				ZeroMemory(&ofn, sizeof(OPENFILENAME));
+				ofn.lStructSize = sizeof(OPENFILENAME);
+				ofn.hwndOwner = mainWindowHandle;
+				ofn.lpstrFile = szFile;
+				ofn.nMaxFile = sizeof(szFile);
+				ofn.lpstrFilter = L"AutoClickerDL File (.acdl)\0*.acdl\0";
+				ofn.nFilterIndex = 0;
+				ofn.lpstrDefExt = L"acdl";
+				ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
+				if (GetOpenFileName(&ofn)) {
+					if (LoadRecordingState(&recordingState, ofn.lpstrFile)) {
+						MessageBox(mainWindowHandle, L"Successfully loaded the remember click file!", L"Successful Load", MB_ICONINFORMATION);
+						wchar_t str[200] = { 0 };
+						swprintf(str, 200, L"Recording loaded with %d mouse clicks!\0", recordingState.numberOfClicks);
+						SetWindowText(rememberClickStatus, str);
+					}
+					else {
+						MessageBox(mainWindowHandle, L"Could not load remember click file, the file might be corrupted or in the incorrect format.", L"Error While Loading", MB_ICONERROR);
+						SetWindowText(rememberClickStatus, L"Load or create a Remember Click recording.");
+						EnableWindow(saveRecordingButton, FALSE);
+						InitRecordingState(&recordingState);
+					}
+				}
+			}
+			else if (id == REMEMBER_SAVE_RECORDING) {
+				if (recordingState.state != REC_STATE_LOADED) {
+					break;
+				}
+				OPENFILENAME ofn;
+				TCHAR szFile[260] = { 0 };
+				ZeroMemory(&ofn, sizeof(OPENFILENAME));
+				ofn.lStructSize = sizeof(OPENFILENAME);
+				ofn.hwndOwner = mainWindowHandle;
+				ofn.lpstrFile = szFile;
+				ofn.nMaxFile = sizeof(szFile);
+				ofn.lpstrFilter = L"AutoClickerDL File (.acdl)\0*.acdl\0";
+				ofn.nFilterIndex = 0;
+				ofn.lpstrDefExt = L"acdl";
+				ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
+				if (GetSaveFileName(&ofn)) {
+					if (SaveRecordingState(&recordingState, ofn.lpstrFile)) {
+						MessageBox(mainWindowHandle, L"Successfully saved the remember click file!", L"Successful Save", MB_ICONINFORMATION);
+					}
+					else {
+						MessageBox(mainWindowHandle, L"Could not save remember click file. Does this program have permission to the location where you are trying to save?", L"Error While Saving", MB_ICONERROR);
+					}
+				}
+			}
+		}
+	}
+	break;
+	case WM_TIMER:
+	{
+		MouseClick* currentClick = recordingState.previousClick;
+		if (GetTickCount() - recordingState.prevoiusSystemTime < currentClick->delay) {
+			break;
+		}
+		int mouseClickType = MCToEventMouse(currentClick->type);
+		if (mouseClickType != MC_TYPE_ERROR) {
+			INPUT input = { 0 };
+			// Move the cursor first.
+			SetCursorPos(currentClick->x, currentClick->y);
+			input.type = INPUT_MOUSE;
+			input.mi.dwFlags = MOUSEEVENTF_MOVE | mouseClickType;
+			SendInput(1, &input, sizeof(INPUT));
+		}
+		recordingState.prevoiusSystemTime = GetTickCount();
+		NextMouseClick(&recordingState);
 	}
 	break;
 	default:
@@ -493,6 +572,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 				return;
 			}
 			if (recordingState.state == REC_STATE_NONE || recordingState.state == REC_STATE_LOADED) {
+				if (recordingState.state == REC_STATE_LOADED) {
+					DeleteRecordingState(&recordingState);
+					InitRecordingState(&recordingState);
+				}
 				// Set the program to record.
 				recordingState.state = REC_STATE_RECORDING;
 				// Set the previous system time to the current number of milliseconds since the system started.
@@ -515,7 +598,31 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 		break;
 		case REMEMBER_PLAY_HOTKEY:
 		{
+			if (isHotkeyControlInFocus()) {
+				return;
+			}
+			if (autoClickerTimer != NULL) {
+				return;
+			}
+			if (recordingState.state == REC_STATE_LOADED) {
+				recordingState.state = REC_STATE_PLAYING;
+				recordingState.prevoiusSystemTime = GetTickCount();
+				wchar_t str[200] = { 0 };
+				swprintf(str, 200, L"Playing recording with %d mouse clicks!\0", recordingState.numberOfClicks);
+				SetWindowText(rememberClickStatus, str);
 
+				recordingState.previousClick = recordingState.startOfRecording;
+				rememberClickTimer = SetTimer(rememberClickDisplayArea, 1002, USER_TIMER_MINIMUM, (TIMERPROC)NULL);
+			}
+			else if (recordingState.state = REC_STATE_PLAYING) {
+				KillTimer(rememberClickDisplayArea, rememberClickTimer);
+				recordingState.state = REC_STATE_LOADED;
+				recordingState.prevoiusSystemTime = 0;
+				recordingState.previousClick = recordingState.startOfRecording;
+				wchar_t str[200] = { 0 };
+				swprintf(str, 200, L"Recording loaded with %d mouse clicks!\0", recordingState.numberOfClicks);
+				SetWindowText(rememberClickStatus, str);
+			}
 		}
 		break;
 		}

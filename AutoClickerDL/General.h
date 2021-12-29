@@ -5,6 +5,7 @@
 
 #define AutoClickerDL_VER_NUM 1
 
+#define MC_TYPE_ERROR 0
 #define MC_TYPE_LEFT_DOWN 1
 #define MC_TYPE_MIDDLE_DOWN 2
 #define MC_TYPE_RIGHT_DOWN 3
@@ -60,8 +61,14 @@ HWND CreateSpinner(HWND parent, HINSTANCE hInstance, Spinner spinner);
 HWND CreateCheckBox(HWND parent, HINSTANCE hInstance, LPCWSTR text, int x, int y, int width, int height, WNDPROC procCallback);
 
 int WMToMC(int wParam);
+int MCToEventMouse(int mc);
 
 void InitRecordingState(RecordingState*);
 void AddMouseClickToState(RecordingState*, MouseClick);
+void NextMouseClick(RecordingState*);
+void DeleteRecordingState(RecordingState*);
+
+BOOL SaveRecordingState(RecordingState*, LPCWSTR);
+BOOL LoadRecordingState(RecordingState*, LPCWSTR);
 
 #endif

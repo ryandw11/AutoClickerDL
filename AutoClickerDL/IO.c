@@ -56,11 +56,37 @@ int saveSettings(const char* fileName, Settings* settings) {
 	itoa(settings->hotkey, hotkey, 10);
 	itoa(settings->rmbStartHotkey, rmbStartHotkey, 10);
 	itoa(settings->rmbPlayHotKey, rmbPlayHotkey, 10);
-	fprintf(outputFile, "%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c", 1, settings->cps, settings->timedAutoClick, settings->timedAutoClickValue, settings->delayTime, settings->mouseClickType, 
+	fprintf(outputFile, "%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c%c", IO_ACDL_SETTINGS_FILE, settings->cps, settings->timedAutoClick, settings->timedAutoClickValue, settings->delayTime, settings->mouseClickType,
 		hotkey[0],hotkey[1],hotkey[2],hotkey[3],
 		rmbStartHotkey[0], rmbStartHotkey[1], rmbStartHotkey[2], rmbStartHotkey[3],
 		rmbPlayHotkey[0], rmbPlayHotkey[1], rmbPlayHotkey[2], rmbPlayHotkey[3]
 	);
 	fclose(outputFile);
 	return 0;
+}
+
+void fputi(FILE* file, int input) {
+	char charr[5] = { 0 };
+	itoa(input, charr, 10);
+	fprintf(file, "%c%c%c%c", charr[0], charr[1], charr[2], charr[3]);
+}
+
+void fputl(FILE* file, LONG input) {
+	char charr[9] = { 0 };
+	ltoa(input, charr, 10);
+	fprintf(file, "%c%c%c%c%c%c%c%c", charr[0], charr[1], charr[2], charr[3], charr[4], charr[5], charr[6], charr[7]);
+}
+
+BOOL fgeti(FILE* file, int* output) {
+	char charr[5] = { 0 };
+	int opt = fscanf(file, "%c%c%c%c", &charr[0], &charr[1], &charr[2], &charr[3]);
+	*output = atoi(charr);
+	return opt != 4 ? FALSE : TRUE;
+}
+
+BOOL fgetl(FILE* file, LONG* output) {
+	char charr[9] = { 0 };
+	int opt = fscanf(file, "%c%c%c%c%c%c%c%c", &charr[0], &charr[1], &charr[2], &charr[3], &charr[4], &charr[5], &charr[6], &charr[7]);
+	*output = atol(charr);
+	return opt != 8 ? FALSE : TRUE;
 }

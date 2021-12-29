@@ -1,8 +1,10 @@
 #include <Windows.h>
 #include <Commctrl.h>
 #include <Shlobj.h>
+#include <stdio.h>
 
 #include "General.h"
+#include "IO.h"
 
 /*
 	Create a display area for the tab. (This create a seperate window class for each tab display area.)
@@ -80,6 +82,24 @@ int WMToMC(int wParam) {
 	return 0;
 }
 
+int MCToEventMouse(int mc) {
+	switch (mc) {
+	case MC_TYPE_LEFT_DOWN:
+		return MOUSEEVENTF_LEFTDOWN;
+	case MC_TYPE_LEFT_UP:
+		return MOUSEEVENTF_LEFTUP;
+	case MC_TYPE_RIGHT_DOWN:
+		return MOUSEEVENTF_RIGHTDOWN;
+	case MC_TYPE_RIGHT_UP:
+		return MOUSEEVENTF_RIGHTUP;
+	case MC_TYPE_MIDDLE_DOWN:
+		return MOUSEEVENTF_MIDDLEDOWN;
+	case MC_TYPE_MIDDLE_UP:
+		return MOUSEEVENTF_MIDDLEUP;
+	default:
+		return 0;
+	}
+}
 
 void InitRecordingState(RecordingState* state) {
 	state->numberOfClicks = 0;
@@ -106,4 +126,92 @@ void AddMouseClickToState(RecordingState* recState, MouseClick mouseClick) {
 	recState->previousClick->nextClick = permElem;
 	recState->previousClick = permElem;
 	recState->numberOfClicks++;
+}
+
+void NextMouseClick(RecordingState* recState) {
+	recState->previousClick = recState->previousClick->nextClick == NULL ? recState->startOfRecording : recState->previousClick->nextClick;
+}
+
+void DeleteRecordingState(RecordingState* state) {
+	if (state->numberOfClicks == 0) return;
+	state->previousClick = state->startOfRecording;
+	while (state->previousClick != NULL) {
+		MouseClick* current = state->previousClick;
+		state->previousClick = state->previousClick->nextClick;
+		free(current);
+	}
+	state->previousClick = NULL;
+	state->startOfRecording = NULL;
+	state->numberOfClicks = 0;
+	state->state = REC_STATE_NONE;
+}
+
+BOOL SaveRecordingState(RecordingState* state, LPCWSTR location) {
+	#pragma warning(disable: 4996)
+
+	if (state->numberOfClicks == 0) {
+		return FALSE;
+	}
+	state->previousClick = state->startOfRecording;
+
+	FILE* outputFile = _wfopen(location, L"w");
+	if (outputFile == NULL) return FALSE;
+	fputc(IO_ACDL_RECORDING_FILE, outputFile);
+	fputi(outputFile, state->numberOfClicks);
+	while (state->previousClick != NULL) {
+		MouseClick* currentClick = state->previousClick;
+		fputi(outputFile, currentClick->type);
+		fputi(outputFile, currentClick->delay);
+		fputl(outputFile, currentClick->x);
+		fputl(outputFile, currentClick->y);
+		state->previousClick = state->previousClick->nextClick;
+	}
+
+	fclose(outputFile);
+
+	state->previousClick = state->startOfRecording;
+
+	return TRUE;
+}
+
+BOOL LoadRecordingState(RecordingState* state, LPCWSTR location) {
+	#pragma warning(disable: 4996)
+	DeleteRecordingState(state);
+
+	InitRecordingState(state);
+
+	FILE* inputFile = _wfopen(location, L"r");
+	if (inputFile == NULL) return FALSE;
+	int type = fgetc(inputFile);
+	if (type != IO_ACDL_RECORDING_FILE) {
+		fclose(inputFile);
+		return FALSE;
+	}
+	int count = 0;
+	if (!fgeti(inputFile, &count)) {
+		fclose(inputFile);
+		return FALSE;
+	}
+
+	if (count <= 0) {
+		fclose(inputFile);
+		return FALSE;
+	}
+
+	int i = 0;
+	for (i = 0; i < count; i++) {
+		MouseClick mouseClick = { 0 };
+		if (!fgeti(inputFile, &mouseClick.type) || !fgeti(inputFile, &mouseClick.delay) 
+			|| !fgetl(inputFile, &mouseClick.x) || !fgetl(inputFile, &mouseClick.y)) {
+			DeleteRecordingState(state);
+			fclose(inputFile);
+			return FALSE;
+		}
+		AddMouseClickToState(state, mouseClick);
+	}
+	state->previousClick = state->startOfRecording;
+	fclose(inputFile);
+	state->state = REC_STATE_LOADED;
+
+	return TRUE;
 }
