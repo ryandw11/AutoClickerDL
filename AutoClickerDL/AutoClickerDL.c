@@ -145,8 +145,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 	===============
 	*/
 
-	HWND infoLabel = CreateWindow(WC_STATIC, L"Welcome to AutoClickerDL! Head to the settings tab to \npick what button to enable the auto clicking!", WS_VISIBLE | WS_CHILD | SS_CENTER,
-		0, 23, WIDTH, 30, generalDisplayArea, NULL, hInstance, NULL);
+	HWND infoLabel = CreateWindow(WC_STATIC, L"Welcome to AutoClickerDL! This application allows you\nto quickly and automatically trigger mouse clicks \nand keyboard presses. Head to the settings tab to pick \nwhat button to enable the auto clicking and pressing!", WS_VISIBLE | WS_CHILD | SS_CENTER,
+		0, 23, WIDTH - 10, 80, generalDisplayArea, NULL, hInstance, NULL);
 
 	HWND authorLabel = CreateWindow(WC_STATIC, L"Created by: Ryandw11", WS_VISIBLE | WS_CHILD | SS_CENTER,
 		0, HEIGHT - 100, WIDTH, 30, generalDisplayArea, NULL, hInstance, NULL);
@@ -157,9 +157,12 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 			0, HEIGHT - 160, WIDTH, 30, generalDisplayArea, NULL, hInstance, NULL);
 	}*/
 
+	HWND mouseAutoCLickLable = CreateWindow(WC_STATIC, L"Mouse Clicker:", WS_VISIBLE | WS_CHILD | SS_CENTER | BOLD_FONTTYPE,
+		0, 120, WIDTH - 20, 20, generalDisplayArea, NULL, hInstance, NULL);
+
 	Spinner cpsSpinner = { 0 };
-	cpsSpinner.x = 100;
-	cpsSpinner.y = 123;
+	cpsSpinner.x = WIDTH/2 - 60;
+	cpsSpinner.y = 143;
 	cpsSpinner.step = 1;
 	cpsSpinner.labelPtr = L"CPS";
 	cpsSpinner.labelSize = 0;
@@ -170,20 +173,33 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 	cpsSpinnerHWD = CreateSpinner(generalDisplayArea, hInstance, cpsSpinner);
 
 
+	// Mouse Button Selection
+	HWND mouseButtonLabel = CreateWindow(WC_STATIC, L"Mouse Button:", WS_VISIBLE | WS_CHILD,
+		100, 175, 200, 40, generalDisplayArea, NULL, hInstance, NULL);
+
+	mouseButtonComboBoxHWD = CreateWindow(WC_COMBOBOX, L"", CBS_HASSTRINGS | CBS_DROPDOWNLIST | WS_CHILD | WS_OVERLAPPED | WS_VISIBLE,
+		200, 173, 120, 20, generalDisplayArea, NULL, hInstance, NULL);
+	SendMessage(mouseButtonComboBoxHWD, CB_ADDSTRING, NULL, L"Left Click");
+	SendMessage(mouseButtonComboBoxHWD, CB_ADDSTRING, NULL, L"Right Click");
+	SendMessage(mouseButtonComboBoxHWD, CB_ADDSTRING, NULL, L"Middle Click");
+	// Set the current selection for the combo box.
+	SendMessage(mouseButtonComboBoxHWD, CB_SETCURSEL, loadedSettings.mouseClickType, NULL);
+
+
 	/*
 	===============
 	Settings Display Area
 	===============
 	*/
-	HWND hotKeyLabel = CreateWindow(WC_STATIC, L"Start/Stop Auto Clicker:", WS_VISIBLE | WS_CHILD,
-		10, 23, 150, 20, settingsDisplayArea, NULL, hInstance, NULL);
+	HWND hotKeyLabel = CreateWindow(WC_STATIC, L"Start/Stop Auto Clicker or Presser:", WS_VISIBLE | WS_CHILD,
+		10, 23, WIDTH, 20, settingsDisplayArea, NULL, hInstance, NULL);
 	startStopHotKey = CreateWindow(HOTKEY_CLASS, L"Start/StopHotKey", WS_VISIBLE | WS_CHILD,
 		10, 43, 150, 20, settingsDisplayArea, AUTO_CLICK_HOTKEY, hInstance, NULL);
 	SendMessage(startStopHotKey, HKM_SETHOTKEY, MAKEWORD(LOBYTE(loadedSettings.hotkey), HIBYTE(loadedSettings.hotkey)), 0);
 	RegisterHotKey(windowHandle, AUTO_CLICK_HOTKEY, HIBYTE(loadedSettings.hotkey), LOBYTE(loadedSettings.hotkey));
 
-	HWND checkbox = CreateWindow(WC_BUTTON, L"Timed Auto Click", WS_VISIBLE | WS_CHILD | BS_CHECKBOX,
-		10, 70, 130, 20, settingsDisplayArea, SETTINGS_TIMED_CHECK_BOX, hInstance, NULL);
+	HWND checkbox = CreateWindow(WC_BUTTON, L"Timed Auto Click or Press", WS_VISIBLE | WS_CHILD | BS_CHECKBOX,
+		10, 70, 200, 20, settingsDisplayArea, SETTINGS_TIMED_CHECK_BOX, hInstance, NULL);
 	CheckDlgButton(settingsDisplayArea, SETTINGS_TIMED_CHECK_BOX, loadedSettings.timedAutoClick);
 
 	Spinner timedAutoClickSpinner = { 0 };
@@ -200,11 +216,11 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 	EnableWindow(timedAutoSpinnerHWD, loadedSettings.timedAutoClick);
 	EnableWindow((HWND)SendMessage(timedAutoSpinnerHWD, UDM_GETBUDDY, NULL, NULL), loadedSettings.timedAutoClick);
 
-	HWND delayLabel = CreateWindow(WC_STATIC, L"Delay between mouse down and up:", WS_VISIBLE | WS_CHILD,
-		10, 130, 200, 40, settingsDisplayArea, NULL, hInstance, NULL);
+	HWND delayLabel = CreateWindow(WC_STATIC, L"Delay between mouse/key down and up:", WS_VISIBLE | WS_CHILD,
+		10, 130, WIDTH, 40, settingsDisplayArea, NULL, hInstance, NULL);
 	Spinner delayClickSpinner = { 0 };
 	delayClickSpinner.x = 10;
-	delayClickSpinner.y = 170;
+	delayClickSpinner.y = 150;
 	delayClickSpinner.step = 10;
 	delayClickSpinner.labelPtr = L"ms";
 	delayClickSpinner.labelSize = 0;
@@ -213,17 +229,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 	itowc(delayTime);
 	delayClickSpinner.defaultValue = delayTime;
 	delaySpinnerHWD = CreateSpinner(settingsDisplayArea, hInstance, delayClickSpinner);
-
-	HWND mouseButtonLabel = CreateWindow(WC_STATIC, L"Mouse button to click:", WS_VISIBLE | WS_CHILD,
-		10, 200, 200, 40, settingsDisplayArea, NULL, hInstance, NULL);
-
-	mouseButtonComboBoxHWD = CreateWindow(WC_COMBOBOX, L"", CBS_HASSTRINGS | CBS_DROPDOWNLIST | WS_CHILD | WS_OVERLAPPED | WS_VISIBLE,
-		10, 220, 120, 20, settingsDisplayArea, NULL, hInstance, NULL);
-	SendMessage(mouseButtonComboBoxHWD, CB_ADDSTRING, NULL, L"Left Click");
-	SendMessage(mouseButtonComboBoxHWD, CB_ADDSTRING, NULL, L"Right Click");
-	SendMessage(mouseButtonComboBoxHWD, CB_ADDSTRING, NULL, L"Middle Click");
-	// Set the current selection for the combo box.
-	SendMessage(mouseButtonComboBoxHWD, CB_SETCURSEL, loadedSettings.mouseClickType, NULL);
 
 	HWND saveButton = CreateWindow(WC_BUTTON, L"Save Settings", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
 		WIDTH / 2 - (80), HEIGHT - 120, 130, 35, settingsDisplayArea, SETTINGS_SAVE_BUTTON, hInstance, NULL);
