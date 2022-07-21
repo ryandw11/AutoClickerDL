@@ -31,6 +31,7 @@ processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 #define AUTO_CLICK_HOTKEY 5
 #define REMEMBER_HOTKEY 6
 #define REMEMBER_PLAY_HOTKEY 7
+#define PRESS_KEY_HOTKEY 8
 
 // The handle to the main window.
 HWND mainWindowHandle;
@@ -39,9 +40,9 @@ HWND mainWindowHandle;
 HWND tabControl, generalDisplayArea, settingsDisplayArea, rememberClickDisplayArea;
 
 // The hotkey control for the start/stop of the Auto Clicker.
-HWND startStopHotKey, rmbClkRecordHK, rmbClkRecordPlayHK;
+HWND startStopHotKey, rmbClkRecordHK, rmbClkRecordPlayHK, pressHotKey;
 // The spinners
-HWND cpsSpinnerHWD, timedAutoSpinnerHWD, delaySpinnerHWD;
+HWND cpsSpinnerHWD, ppsSpinnerHWD, timedAutoSpinnerHWD, delaySpinnerHWD;
 // The comboboxes
 HWND mouseButtonComboBoxHWD;
 // The labels
@@ -185,6 +186,27 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 	// Set the current selection for the combo box.
 	SendMessage(mouseButtonComboBoxHWD, CB_SETCURSEL, loadedSettings.mouseClickType, NULL);
 
+	HWND keyAutoPressLabel = CreateWindow(WC_STATIC, L"Key Presser:", WS_VISIBLE | WS_CHILD | SS_CENTER | BOLD_FONTTYPE,
+		0, 220, WIDTH - 20, 20, generalDisplayArea, NULL, hInstance, NULL);
+
+	Spinner pressPerSecondSpinner = { 0 };
+	pressPerSecondSpinner.x = WIDTH / 2 - 60;
+	pressPerSecondSpinner.y = 240;
+	pressPerSecondSpinner.step = 1;
+	pressPerSecondSpinner.labelPtr = L"CPS";
+	pressPerSecondSpinner.labelSize = 0;
+	pressPerSecondSpinner.rangeMin = 1;
+	pressPerSecondSpinner.rangeMax = 80;
+	//itowc(cps)
+	//pressPerSecondSpinner.defaultValue = cps;
+	pressPerSecondSpinner.defaultValue = L"20";
+	ppsSpinnerHWD = CreateSpinner(generalDisplayArea, hInstance, pressPerSecondSpinner);
+
+	HWND pressKeyLabel = CreateWindow(WC_STATIC, L"Key:", WS_VISIBLE | WS_CHILD | SS_CENTER,
+		100, 270, 30, 20, generalDisplayArea, NULL, hInstance, NULL);
+	pressHotKey = CreateWindow(HOTKEY_CLASS, L"KeyToPress", WS_VISIBLE | WS_CHILD,
+		140, 270, 100, 20, generalDisplayArea, PRESS_KEY_HOTKEY, hInstance, NULL);
+
 
 	/*
 	===============
@@ -307,7 +329,7 @@ void updateCurrentSettings(Settings* settings) {
 */
 BOOL isHotkeyControlInFocus() {
 	HWND handle = GetFocus();
-	if (handle == startStopHotKey || handle == rmbClkRecordHK || handle == rmbClkRecordPlayHK) {
+	if (handle == startStopHotKey || handle == rmbClkRecordHK || handle == rmbClkRecordPlayHK || handle == pressHotKey) {
 		return TRUE;
 	}
 	return FALSE;
