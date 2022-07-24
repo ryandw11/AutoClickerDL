@@ -7,6 +7,8 @@
 #define IO_ACDL_SETTINGS_FILE 1
 #define IO_ACDL_RECORDING_FILE 2
 
+void applyDefaultSettings(Settings* settings);
+
 void loadSettings(Settings* settings);
 int saveSettings(const char* fileName, Settings* settings);
 

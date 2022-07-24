@@ -32,6 +32,10 @@ processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 #define REMEMBER_HOTKEY 6
 #define REMEMBER_PLAY_HOTKEY 7
 #define PRESS_KEY_HOTKEY 8
+#define MODE_BUTTON_GROUP 9
+#define RADIO_BUTTON_AUTO_CLICK 10
+#define RADIO_BUTTON_AUTO_PRESS 11
+#define SETTINGS_PRESS_UP_CHECK_BOX 12
 
 // The handle to the main window.
 HWND mainWindowHandle;
@@ -49,6 +53,8 @@ HWND mouseButtonComboBoxHWD;
 HWND rememberClickStatus;
 // Buttons
 HWND saveRecordingButton;
+// Radio Buttons
+HWND autoClickRadioButton, autoPressRadioButton;
 
 // The timer used by the clicker. Not null when enabled, NULL when not enabled.
 UINT_PTR autoClickerTimer = NULL;
@@ -64,17 +70,24 @@ RecordingState recordingState;
 Settings currentSettings;
 
 // The hook handle for the mouse hook.
-HHOOK mouseHook;
+HHOOK mouseHook, keyHook;
 
 // The normal and activated icons.
 HICON normalIcon, clickActivatedIcon;
 
 // Process callbacks.
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+LRESULT CALLBACK GeneralProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 LRESULT CALLBACK SettingsProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 LRESULT CALLBACK RememberProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 // Hook Callback
 LRESULT CALLBACK LowLevelMouseProc(int nCode, WPARAM wParam, LPARAM lParam);
+LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam);
+
+// Helper Functions
+int GetAutoMode();
+void UpdateAutoModeWindows(int);
+
 
 /*
 	This is the main method for the program.
@@ -131,11 +144,11 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 	tabItem.pszText = L"Remember Click";
 	TabCtrl_InsertItem(tabControl, 2, &tabItem);
 
-	generalDisplayArea = CreateWindow(WC_STATIC, L"", WS_CHILD | WS_VISIBLE | WS_BORDER,
-		0, 23, WIDTH, HEIGHT-23, tabControl, NULL, hInstance, NULL);
+	generalDisplayArea = CreateTabDisplayArea(tabControl, hInstance, L"GeneralDisplayArea", 0, 23, WIDTH, HEIGHT - 23, GeneralProc);
 	settingsDisplayArea = CreateTabDisplayArea(tabControl, hInstance, L"SettingsDisplayArea", 0, 23, WIDTH, HEIGHT - 23, SettingsProc);
 	rememberClickDisplayArea = CreateTabDisplayArea(tabControl, hInstance, L"RememberDisplayArea", 0, 23, WIDTH, HEIGHT - 23, RememberProc);
 
+	ShowWindow(generalDisplayArea, TRUE);
 
 	Settings loadedSettings = { 0 };
 	loadSettings("settings.acdl", &loadedSettings);
@@ -197,15 +210,26 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 	pressPerSecondSpinner.labelSize = 0;
 	pressPerSecondSpinner.rangeMin = 1;
 	pressPerSecondSpinner.rangeMax = 80;
-	//itowc(cps)
-	//pressPerSecondSpinner.defaultValue = cps;
-	pressPerSecondSpinner.defaultValue = L"20";
+	itowc(pps)
+	pressPerSecondSpinner.defaultValue = pps;
 	ppsSpinnerHWD = CreateSpinner(generalDisplayArea, hInstance, pressPerSecondSpinner);
 
+	// Press Hot Key
 	HWND pressKeyLabel = CreateWindow(WC_STATIC, L"Key:", WS_VISIBLE | WS_CHILD | SS_CENTER,
 		100, 270, 30, 20, generalDisplayArea, NULL, hInstance, NULL);
 	pressHotKey = CreateWindow(HOTKEY_CLASS, L"KeyToPress", WS_VISIBLE | WS_CHILD,
 		140, 270, 100, 20, generalDisplayArea, PRESS_KEY_HOTKEY, hInstance, NULL);
+	SendMessage(pressHotKey, HKM_SETHOTKEY, MAKEWORD(LOBYTE(loadedSettings.autoPressKey), HIBYTE(loadedSettings.autoPressKey)), 0);
+
+	// Mode Radio Buttons
+	autoClickRadioButton = CreateWindow(L"BUTTON", L"Mouse Clicker", WS_VISIBLE | WS_CHILD | WS_GROUP | WS_TABSTOP | BS_AUTORADIOBUTTON,
+		80, 350, 110, 20, generalDisplayArea, RADIO_BUTTON_AUTO_CLICK, hInstance, NULL);
+	autoPressRadioButton = CreateWindow(L"BUTTON", L"Key Presser", WS_VISIBLE | WS_CHILD | BS_AUTORADIOBUTTON,
+		200, 350, 100, 20, generalDisplayArea, RADIO_BUTTON_AUTO_PRESS, hInstance, NULL);
+
+	CheckDlgButton(generalDisplayArea, RADIO_BUTTON_AUTO_CLICK, loadedSettings.mode == MODE_AUTO_CLICK ? 1 : 0);
+	CheckDlgButton(generalDisplayArea, RADIO_BUTTON_AUTO_PRESS, loadedSettings.mode == MODE_AUTO_PRESS ? 1 : 0);
+	UpdateAutoModeWindows(loadedSettings.mode);
 
 
 	/*
@@ -251,6 +275,10 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 	itowc(delayTime);
 	delayClickSpinner.defaultValue = delayTime;
 	delaySpinnerHWD = CreateSpinner(settingsDisplayArea, hInstance, delayClickSpinner);
+
+	HWND keyUpCheckbox = CreateWindow(WC_BUTTON, L"Trigger Key Up", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX,
+		10, 180, 200, 20, settingsDisplayArea, SETTINGS_PRESS_UP_CHECK_BOX, hInstance, NULL);
+	CheckDlgButton(settingsDisplayArea, SETTINGS_PRESS_UP_CHECK_BOX, loadedSettings.pressKeyUp);
 
 	HWND saveButton = CreateWindow(WC_BUTTON, L"Save Settings", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
 		WIDTH / 2 - (80), HEIGHT - 120, 130, 35, settingsDisplayArea, SETTINGS_SAVE_BUTTON, hInstance, NULL);
@@ -313,10 +341,14 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 */
 void updateCurrentSettings(Settings* settings) {
 	settings->cps = SendMessage(cpsSpinnerHWD, UDM_GETPOS32, NULL, NULL);
+	settings->mouseClickType = SendMessage(mouseButtonComboBoxHWD, CB_GETCURSEL, NULL, NULL);
+	settings->pps = SendMessage(ppsSpinnerHWD, UDM_GETPOS32, NULL, NULL);
+	settings->autoPressKey = SendMessage(pressHotKey, HKM_GETHOTKEY, NULL, NULL);
+	settings->mode = GetAutoMode();
 	settings->timedAutoClick = IsDlgButtonChecked(settingsDisplayArea, SETTINGS_TIMED_CHECK_BOX);
 	settings->timedAutoClickValue = SendMessage(timedAutoSpinnerHWD, UDM_GETPOS32, NULL, NULL);
 	settings->delayTime = SendMessage(delaySpinnerHWD, UDM_GETPOS32, NULL, NULL);
-	settings->mouseClickType = SendMessage(mouseButtonComboBoxHWD, CB_GETCURSEL, NULL, NULL);
+	settings->pressKeyUp = IsDlgButtonChecked(settingsDisplayArea, SETTINGS_PRESS_UP_CHECK_BOX);
 	settings->hotkey = SendMessage(startStopHotKey, HKM_GETHOTKEY, NULL, NULL);
 	settings->rmbStartHotkey = SendMessage(rmbClkRecordHK, HKM_GETHOTKEY, NULL, NULL);
 	settings->rmbPlayHotKey = SendMessage(rmbClkRecordPlayHK, HKM_GETHOTKEY, NULL, NULL);
@@ -333,6 +365,44 @@ BOOL isHotkeyControlInFocus() {
 		return TRUE;
 	}
 	return FALSE;
+}
+
+/*
+	This is the callback for the messages of the general display background.
+*/
+LRESULT CALLBACK GeneralProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+	switch (uMsg) {
+	case WM_COMMAND:
+	{
+		int cmd = HIWORD(wParam);
+		// Hot key selector change.
+		if (cmd == EN_CHANGE) {
+			int loword = LOWORD(wParam);
+
+			if (loword == PRESS_KEY_HOTKEY) {
+				// Unregister and re-register global hot key with the change.
+				int result = SendMessage(pressHotKey, HKM_GETHOTKEY, NULL, NULL);
+				if (LOBYTE(result) != 0)
+					SetFocus(mainWindowHandle);
+			}
+		}
+		else if (cmd == BN_CLICKED) {
+			int button = LOWORD(wParam);
+
+			if (button == RADIO_BUTTON_AUTO_CLICK) {
+				UpdateAutoModeWindows(MODE_AUTO_CLICK);
+			}
+			else if (button == RADIO_BUTTON_AUTO_PRESS) {
+				UpdateAutoModeWindows(MODE_AUTO_PRESS);
+			}
+		}
+	}
+	break;
+	break;
+	default:
+		break;
+	}
+	return DefWindowProc(hwnd, uMsg, wParam, lParam);
 }
 
 /*
@@ -443,7 +513,7 @@ LRESULT CALLBACK RememberProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 					if (LoadRecordingState(&recordingState, ofn.lpstrFile)) {
 						MessageBox(mainWindowHandle, L"Successfully loaded the remember click file!", L"Successful Load", MB_ICONINFORMATION);
 						wchar_t str[200] = { 0 };
-						swprintf(str, 200, L"Recording loaded with %d mouse clicks!\0", recordingState.numberOfClicks);
+						swprintf(str, 200, L"Recording loaded with %d inputs!\0", recordingState.numberOfClicks);
 						SetWindowText(rememberClickStatus, str);
 					}
 					else {
@@ -487,18 +557,36 @@ LRESULT CALLBACK RememberProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 	{
 		// This timer is triggered by the remember click play hotkey.
 
-		MouseClick* currentClick = recordingState.previousClick;
+		RememberClick* currentClick = recordingState.previousClick;
 		if (GetTickCount() - recordingState.prevoiusSystemTime < currentClick->delay) {
 			break;
 		}
-		int mouseClickType = MCToEventMouse(currentClick->type);
-		if (mouseClickType != MC_TYPE_ERROR) {
-			INPUT input = { 0 };
-			// Move the cursor first.
-			SetCursorPos(currentClick->x, currentClick->y);
-			input.type = INPUT_MOUSE;
-			input.mi.dwFlags = MOUSEEVENTF_MOVE | mouseClickType;
-			SendInput(1, &input, sizeof(INPUT));
+		if (currentClick->type == RC_MOUSE_CLICK) {
+			int mouseClickType = MCToEventMouse(currentClick->mi.type);
+			if (mouseClickType != MC_TYPE_ERROR) {
+				INPUT input = { 0 };
+				// Move the cursor first.
+				SetCursorPos(currentClick->mi.x, currentClick->mi.y);
+				input.type = INPUT_MOUSE;
+				input.mi.dwFlags = MOUSEEVENTF_MOVE | mouseClickType;
+				SendInput(1, &input, sizeof(INPUT));
+			}
+		}
+		else if (currentClick->type == RC_KEY_PRESS) {
+			int keyClickType = KBToEventKey(currentClick->ki.type);
+			if (keyClickType != 0) {
+				INPUT input = { 0 };
+				input.type = INPUT_KEYBOARD;
+				input.ki.dwFlags = keyClickType;
+				input.ki.wVk = currentClick->ki.key;
+				SendInput(1, &input, sizeof(INPUT));
+			}
+			else {
+				INPUT input = { 0 };
+				input.type = INPUT_KEYBOARD;
+				input.ki.wVk = currentClick->ki.key;
+				SendInput(1, &input, sizeof(INPUT));
+			}
 		}
 		recordingState.prevoiusSystemTime = GetTickCount();
 		NextMouseClick(&recordingState);
@@ -604,6 +692,15 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 				KillTimer(hwnd, autoClickerTimer);
 				autoClickerTimer = NULL;
 				SetClassLong(hwnd, GCL_HICON, normalIcon);
+
+				// Send a key up event if needed.
+				if (GetAutoMode() == MODE_AUTO_PRESS && !IsDlgButtonChecked(settingsDisplayArea, SETTINGS_PRESS_UP_CHECK_BOX)) {
+					INPUT input = { 0 };
+					input.type = INPUT_KEYBOARD;
+					input.ki.wVk = SendMessage(pressHotKey, HKM_GETHOTKEY, NULL, NULL);
+					input.ki.dwFlags = KEYEVENTF_KEYUP;
+					SendInput(1, &input, sizeof(INPUT));
+				}
 			}
 		}
 		break;
@@ -629,7 +726,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 				// Set the previous system time to the current number of milliseconds since the system started.
 				recordingState.prevoiusSystemTime = GetTickCount();
 				mouseHook = SetWindowsHookEx(WH_MOUSE_LL, LowLevelMouseProc, GetModuleHandle(NULL), 0);
-				SetWindowText(rememberClickStatus, L"Recording clicks...");
+				keyHook = SetWindowsHookEx(WH_KEYBOARD_LL, LowLevelKeyboardProc, GetModuleHandle(NULL), 0);
+				SetWindowText(rememberClickStatus, L"Recording inputs...");
 				// Change the icon to gray.
 				SetClassLong(hwnd, GCL_HICON, clickActivatedIcon);
 			}
@@ -640,10 +738,12 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 				recordingState.previousClick = recordingState.startOfRecording;
 				// Unhook the mouse hook to prevent lag if an error were to occur.
 				UnhookWindowsHookEx(mouseHook);
+				UnhookWindowsHookEx(keyHook);
 				mouseHook = NULL;
+				keyHook = NULL;
 				EnableWindow(saveRecordingButton, TRUE);
 				wchar_t str[200] = {0};
-				swprintf(str, 200, L"Recording loaded with %d mouse clicks!\0", recordingState.numberOfClicks);
+				swprintf(str, 200, L"Recording loaded with %d inputs!\0", recordingState.numberOfClicks);
 				SetWindowText(rememberClickStatus, str);
 				// Change the icon back to normal.
 				SetClassLong(hwnd, GCL_HICON, normalIcon);
@@ -664,7 +764,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 				recordingState.state = REC_STATE_PLAYING;
 				recordingState.prevoiusSystemTime = GetTickCount();
 				wchar_t str[200] = { 0 };
-				swprintf(str, 200, L"Playing recording with %d mouse clicks!\0", recordingState.numberOfClicks);
+				swprintf(str, 200, L"Playing recording with %d inputs!\0", recordingState.numberOfClicks);
 				SetWindowText(rememberClickStatus, str);
 
 				recordingState.previousClick = recordingState.startOfRecording;
@@ -678,7 +778,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 				recordingState.prevoiusSystemTime = 0;
 				recordingState.previousClick = recordingState.startOfRecording;
 				wchar_t str[200] = { 0 };
-				swprintf(str, 200, L"Recording loaded with %d mouse clicks!\0", recordingState.numberOfClicks);
+				swprintf(str, 200, L"Recording loaded with %d inputs!\0", recordingState.numberOfClicks);
 				SetWindowText(rememberClickStatus, str);
 				SetClassLong(hwnd, GCL_HICON, normalIcon);
 			}
@@ -692,36 +792,74 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 	// This timer is for the normal auto clicker.
 	case WM_TIMER:
 	{
-		int up = 0;
-		int down = 0;
-		getMouseFromSettings(&up, &down, &currentSettings);
-		if (currentSettings.delayTime == 0) {
-			// When the timmer is triggered, send a click event.
-			INPUT inputs[2] = { 0 };
+		if (GetAutoMode() == MODE_AUTO_CLICK) {
+			int up = 0;
+			int down = 0;
+			getMouseFromSettings(&up, &down, &currentSettings);
+			if (currentSettings.delayTime == 0) {
+				// When the timmer is triggered, send a click event.
+				INPUT inputs[2] = { 0 };
 
-			inputs[0].type = INPUT_MOUSE;
-			inputs[0].mi.dwFlags = MOUSEEVENTF_MOVE | down;
-			inputs[1].type = INPUT_MOUSE;
-			inputs[1].mi.dwFlags = MOUSEEVENTF_MOVE | up;
-			SendInput(2, &inputs, sizeof(INPUT));
+				inputs[0].type = INPUT_MOUSE;
+				inputs[0].mi.dwFlags = MOUSEEVENTF_MOVE | down;
+				inputs[1].type = INPUT_MOUSE;
+				inputs[1].mi.dwFlags = MOUSEEVENTF_MOVE | up;
+				SendInput(2, &inputs, sizeof(INPUT));
+			}
+			else {
+				INPUT inputOne = { 0 };
+				INPUT inputTwo = { 0 };
+
+				inputOne.type = INPUT_MOUSE;
+				inputOne.mi.dwFlags = MOUSEEVENTF_MOVE | down;
+				inputTwo.type = INPUT_MOUSE;
+				inputTwo.mi.dwFlags = MOUSEEVENTF_MOVE | up;
+				SendInput(1, &inputOne, sizeof(INPUT));
+				Sleep(currentSettings.delayTime);
+				SendInput(1, &inputTwo, sizeof(INPUT));
+			}
 		}
-		else {
-			INPUT inputOne = { 0 };
-			INPUT inputTwo = { 0 };
+		else if (GetAutoMode() == MODE_AUTO_PRESS) {
+			BOOL triggerKeyUp = IsDlgButtonChecked(settingsDisplayArea, SETTINGS_PRESS_UP_CHECK_BOX);
+			if (currentSettings.delayTime == 0) {
+				// When the timmer is triggered, send a press event.
+				INPUT inputs[2] = { 0 };
 
-			inputOne.type = INPUT_MOUSE;
-			inputOne.mi.dwFlags = MOUSEEVENTF_MOVE | down;
-			inputTwo.type = INPUT_MOUSE;
-			inputTwo.mi.dwFlags = MOUSEEVENTF_MOVE | up;
-			SendInput(1, &inputOne, sizeof(INPUT));
-			Sleep(currentSettings.delayTime);
-			SendInput(1, &inputTwo, sizeof(INPUT));
+				inputs[0].type = INPUT_KEYBOARD;
+				inputs[0].ki.wVk = SendMessage(pressHotKey, HKM_GETHOTKEY, NULL, NULL);
+				inputs[1].type = INPUT_KEYBOARD;
+				inputs[1].ki.wVk = SendMessage(pressHotKey, HKM_GETHOTKEY, NULL, NULL);
+				inputs[1].ki.dwFlags = KEYEVENTF_KEYUP;
+				SendInput(triggerKeyUp ? 2 : 1, &inputs, sizeof(INPUT));
+			}
+			else {
+				INPUT inputOne = { 0 };
+				INPUT inputTwo = { 0 };
+
+				inputOne.type = INPUT_KEYBOARD;
+				inputOne.ki.wVk = SendMessage(pressHotKey, HKM_GETHOTKEY, NULL, NULL);
+				inputTwo.type = INPUT_KEYBOARD;
+				inputTwo.ki.wVk = SendMessage(pressHotKey, HKM_GETHOTKEY, NULL, NULL);
+				inputTwo.ki.dwFlags = KEYEVENTF_KEYUP;
+				SendInput(1, &inputOne, sizeof(INPUT));
+				Sleep(currentSettings.delayTime);
+				if(triggerKeyUp)
+					SendInput(1, &inputTwo, sizeof(INPUT));
+			}
 		}
 
 		// If timer mode is enabled, shut off the timer if over time.
 		if (IsDlgButtonChecked(settingsDisplayArea, SETTINGS_TIMED_CHECK_BOX) && time(NULL) - startClickerTime  >= SendMessage(timedAutoSpinnerHWD, UDM_GETPOS32, NULL, NULL)) {
 			KillTimer(hwnd, autoClickerTimer);
 			autoClickerTimer = NULL;
+
+			if (GetAutoMode() == MODE_AUTO_PRESS && !IsDlgButtonChecked(settingsDisplayArea, SETTINGS_PRESS_UP_CHECK_BOX)) {
+				INPUT input = { 0 };
+				input.type = INPUT_KEYBOARD;
+				input.ki.wVk = SendMessage(pressHotKey, HKM_GETHOTKEY, NULL, NULL);
+				input.ki.dwFlags = KEYEVENTF_KEYUP;
+				SendInput(1, &input, sizeof(INPUT));
+			}
 		}
 	}
 	break;
@@ -741,17 +879,69 @@ LRESULT CALLBACK LowLevelMouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
 	// Unknown / unwanted action, skip.
 	if(mcType == 0)
 		return CallNextHookEx(NULL, nCode, wParam, lParam);
-	MouseClick mc = { 0 };
-	mc.nextClick = NULL;
-	mc.type = mcType;
-	mc.delay = GetTickCount() - recordingState.prevoiusSystemTime;
+	RememberClick rc = { 0 };
+	rc.next = NULL;
+	rc.type = RC_MOUSE_CLICK;
+	rc.delay = GetTickCount() - recordingState.prevoiusSystemTime;
 	// Set the previous system time to the current number of milliseconds since the system started.
 	recordingState.prevoiusSystemTime = GetTickCount();
+	rc.mi.type = mcType;
 	POINT p = { 0 };
 	GetCursorPos(&p);
-	mc.x = p.x;
-	mc.y = p.y;
-	AddMouseClickToState(&recordingState, mc);
+	rc.mi.x = p.x;
+	rc.mi.y = p.y;
+	AddRememberClickToState(&recordingState, rc);
 
 	return CallNextHookEx(NULL, nCode, wParam, lParam);
+}
+
+LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
+	if (nCode < 0 || recordingState.state != REC_STATE_RECORDING)
+		return CallNextHookEx(NULL, nCode, wParam, lParam);
+
+	int kbType = WMToKB(wParam);
+	if(kbType == 0)
+		return CallNextHookEx(NULL, nCode, wParam, lParam);
+	RememberClick rc = { 0 };
+	rc.next = NULL;
+	rc.type = RC_KEY_PRESS;
+	rc.delay = GetTickCount() - recordingState.prevoiusSystemTime;
+	recordingState.prevoiusSystemTime = GetTickCount();
+	rc.ki.type = kbType;
+	LPKBDLLHOOKSTRUCT kb = (LPKBDLLHOOKSTRUCT) lParam;
+	rc.ki.key = kb->vkCode;
+
+	AddRememberClickToState(&recordingState, rc);
+
+	return CallNextHookEx(NULL, nCode, wParam, lParam);
+}
+
+/**
+* Get the current auto mode.
+* 
+* @return MODE_AUTO_CLICK, MODE_AUTO_PRESS, or MODE_ERROR
+*/
+int GetAutoMode() {
+	if (IsDlgButtonChecked(generalDisplayArea, RADIO_BUTTON_AUTO_CLICK)) return MODE_AUTO_CLICK;
+	else if (IsDlgButtonChecked(generalDisplayArea, RADIO_BUTTON_AUTO_PRESS)) return MODE_AUTO_PRESS;
+	else return MODE_ERROR;
+}
+
+void UpdateAutoModeWindows( int mode ) {
+	if (mode == MODE_AUTO_CLICK) {
+		EnableWindow(cpsSpinnerHWD, TRUE);
+		EnableWindow((HWND)SendMessage(cpsSpinnerHWD, UDM_GETBUDDY, NULL, NULL), TRUE);
+		EnableWindow(mouseButtonComboBoxHWD, TRUE);
+		EnableWindow(pressHotKey, FALSE);
+		EnableWindow(ppsSpinnerHWD, FALSE);
+		EnableWindow((HWND)SendMessage(ppsSpinnerHWD, UDM_GETBUDDY, NULL, NULL), FALSE);
+	}
+	else if (mode == MODE_AUTO_PRESS) {
+		EnableWindow(cpsSpinnerHWD, FALSE);
+		EnableWindow((HWND)SendMessage(cpsSpinnerHWD, UDM_GETBUDDY, NULL, NULL), FALSE);
+		EnableWindow(mouseButtonComboBoxHWD, FALSE);
+		EnableWindow(pressHotKey, TRUE);
+		EnableWindow(ppsSpinnerHWD, TRUE);
+		EnableWindow((HWND)SendMessage(ppsSpinnerHWD, UDM_GETBUDDY, NULL, NULL), TRUE);
+	}
 }

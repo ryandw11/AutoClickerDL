@@ -88,6 +88,27 @@ int WMToMC(int wParam) {
 	return 0;
 }
 
+/**
+	Convert Windows Keyboard (provided from windows keyboard hook) value into the Keyboard Click Type value.
+
+	@param wParam the WM value (Example: WM_KEYDOWN)
+	@returns The KB value (example: KB_TYPE_KEYDOWN). (Returns KB_TYPE_ERROR if not valid).
+*/
+int WMToKB(int wParam) {
+	switch (wParam) 
+	{
+	case WM_KEYDOWN:
+		return KB_TYPE_KEYDOWN;
+	case WM_KEYUP:
+		return KB_TYPE_KEYUP;
+	case WM_SYSKEYDOWN:
+		return KB_TYPE_SYSKEYDOWN;
+	case WM_SYSKEYUP:
+		return KB_TYPE_SYSKEYUP;
+	}
+	return 0;
+}
+
 /*
 	Convert a MC Type to a Mouse Event Type.
 	
@@ -113,6 +134,15 @@ int MCToEventMouse(int mc) {
 	}
 }
 
+int KBToEventKey(int kb) {
+	switch (kb) {
+	case KB_TYPE_SYSKEYDOWN:
+	case KB_TYPE_KEYUP:
+		return KEYEVENTF_KEYUP;
+	}
+	return 0;
+}
+
 /**
 	Initalize the recording state. (Note: the default state is NONE).
 
@@ -127,18 +157,28 @@ void InitRecordingState(RecordingState* state) {
 }
 
 /**
-	Add a mouse click the recording. (This will take care of every case and increment the numberOfClicks field).
+	Add a remember click the recording. (This will take care of every case and increment the numberOfClicks field).
 
 	@param recState The pointer to the recording state to add the mouse click to.
-	@param mouseClick The mouse click struct to add. (Note: mouseClick.nextClick does not need to be set).
+	@param rememberClick The remember click struct to add. (Note: rememberClick.next does not need to be set).
 */
-void AddMouseClickToState(RecordingState* recState, MouseClick mouseClick) {
-	MouseClick* permElem = (MouseClick*)malloc(sizeof(MouseClick));
-	permElem->type = mouseClick.type;
-	permElem->delay = mouseClick.delay;
-	permElem->nextClick = NULL;
-	permElem->x = mouseClick.x;
-	permElem->y = mouseClick.y;
+void AddRememberClickToState(RecordingState* recState, RememberClick rememberClick) {
+	RememberClick* permElem = (RememberClick*)malloc(sizeof(RememberClick));
+	if (permElem == NULL) return;
+
+	permElem->delay = rememberClick.delay;
+	permElem->type = rememberClick.type;
+	permElem->next = NULL;
+
+	if (rememberClick.type == RC_MOUSE_CLICK) {
+		permElem->mi.type = rememberClick.mi.type;
+		permElem->mi.x = rememberClick.mi.x;
+		permElem->mi.y = rememberClick.mi.y;
+	}
+	else if(rememberClick.type = RC_KEY_PRESS) {
+		permElem->ki.type = rememberClick.ki.type;
+		permElem->ki.key = rememberClick.ki.key;
+	}
 	
 	if (recState->numberOfClicks == 0) {
 		recState->startOfRecording = permElem;
@@ -146,19 +186,19 @@ void AddMouseClickToState(RecordingState* recState, MouseClick mouseClick) {
 		recState->numberOfClicks = 1;
 		return;
 	}
-	recState->previousClick->nextClick = permElem;
+	recState->previousClick->next = permElem;
 	recState->previousClick = permElem;
 	recState->numberOfClicks++;
 }
 
 /**
 	Get the next mouse click for the recording state. (If the end of the recording is reached, it will look back to the begining). 
-	Get the pointer to the MouseClick struct from `recState.prevoiusClick`.
+	Get the pointer to the RememberClick struct from `recState.prevoiusClick`.
 
 	@param recState The recording state to get the next mouse click from.
 */
 void NextMouseClick(RecordingState* recState) {
-	recState->previousClick = recState->previousClick->nextClick == NULL ? recState->startOfRecording : recState->previousClick->nextClick;
+	recState->previousClick = recState->previousClick->next == NULL ? recState->startOfRecording : recState->previousClick->next;
 }
 
 /**
@@ -170,8 +210,8 @@ void DeleteRecordingState(RecordingState* state) {
 	if (state->numberOfClicks == 0) return;
 	state->previousClick = state->startOfRecording;
 	while (state->previousClick != NULL) {
-		MouseClick* current = state->previousClick;
-		state->previousClick = state->previousClick->nextClick;
+		RememberClick* current = state->previousClick;
+		state->previousClick = state->previousClick->next;
 		free(current);
 	}
 	state->previousClick = NULL;
@@ -202,12 +242,19 @@ BOOL SaveRecordingState(RecordingState* state, LPCWSTR location) {
 	fputc(IO_ACDL_RECORDING_FILE, outputFile);
 	fputi(outputFile, state->numberOfClicks);
 	while (state->previousClick != NULL) {
-		MouseClick* currentClick = state->previousClick;
+		RememberClick* currentClick = state->previousClick;
 		fputi(outputFile, currentClick->type);
 		fputi(outputFile, currentClick->delay);
-		fputl(outputFile, currentClick->x);
-		fputl(outputFile, currentClick->y);
-		state->previousClick = state->previousClick->nextClick;
+		if (currentClick->type == RC_MOUSE_CLICK) {
+			fputi(outputFile, currentClick->mi.type);
+			fputl(outputFile, currentClick->mi.x);
+			fputl(outputFile, currentClick->mi.y);
+		}
+		else {
+			fputi(outputFile, currentClick->ki.type);
+			fputi(outputFile, currentClick->ki.key);
+		}
+		state->previousClick = state->previousClick->next;
 	}
 
 	fclose(outputFile);
@@ -252,14 +299,32 @@ BOOL LoadRecordingState(RecordingState* state, LPCWSTR location) {
 
 	int i = 0;
 	for (i = 0; i < count; i++) {
-		MouseClick mouseClick = { 0 };
-		if (!fgeti(inputFile, &mouseClick.type) || !fgeti(inputFile, &mouseClick.delay) 
-			|| !fgetl(inputFile, &mouseClick.x) || !fgetl(inputFile, &mouseClick.y)) {
+		RememberClick rememberClick = { 0 };
+		if (!fgeti(inputFile, &rememberClick.type) || !fgeti(inputFile, &rememberClick.delay)) {
 			DeleteRecordingState(state);
 			fclose(inputFile);
 			return FALSE;
 		}
-		AddMouseClickToState(state, mouseClick);
+		if (rememberClick.type == RC_MOUSE_CLICK) {
+			if (!fgeti(inputFile, &rememberClick.mi.type) || !fgetl(inputFile, &rememberClick.mi.x) || !fgetl(inputFile, &rememberClick.mi.y)) {
+				DeleteRecordingState(state);
+				fclose(inputFile);
+				return FALSE;
+			}
+		}
+		else if (rememberClick.type = RC_KEY_PRESS) {
+			if (!fgeti(inputFile, &rememberClick.ki.type) || !fgeti(inputFile, &rememberClick.ki.key)) {
+				DeleteRecordingState(state);
+				fclose(inputFile);
+				return FALSE;
+			}
+		}
+		else {
+			DeleteRecordingState(state);
+			fclose(inputFile);
+			return FALSE;
+		}
+		AddRememberClickToState(state, rememberClick);
 	}
 	state->previousClick = state->startOfRecording;
 	fclose(inputFile);
