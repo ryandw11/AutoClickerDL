@@ -312,7 +312,7 @@ BOOL LoadRecordingState(RecordingState* state, LPCWSTR location) {
 				return FALSE;
 			}
 		}
-		else if (rememberClick.type = RC_KEY_PRESS) {
+		else if (rememberClick.type == RC_KEY_PRESS) {
 			if (!fgeti(inputFile, &rememberClick.ki.type) || !fgeti(inputFile, &rememberClick.ki.key)) {
 				DeleteRecordingState(state);
 				fclose(inputFile);
